@@ -1,0 +1,15 @@
+.entity-marker{pointer-events:auto;display:grid;place-items:center;width:30px;height:30px;padding:6px;border:0;border-radius:6px;background:transparent;box-shadow:none;filter:drop-shadow(0 1px 2px #02070c) drop-shadow(0 0 2px #02070c);transition:background .15s,filter .15s}
+.entity-marker svg{width:18px;height:18px;overflow:visible}
+.entity-marker:hover,.entity-marker:focus-visible{background:#071321d9;filter:drop-shadow(0 0 5px currentColor);outline:1px solid currentColor}
+.larger-icons .entity-marker{width:36px;height:36px}.larger-icons .entity-marker svg{width:24px;height:24px}
+.view-options{position:absolute;top:139px;left:28px;z-index:4;display:flex;flex-wrap:wrap;gap:6px;max-width:calc(100% - 50px)}
+.view-options button{font-size:11px;padding:7px 9px;background:#0f1c2adb;border-color:#344457;backdrop-filter:blur(12px)}
+.view-options button[aria-pressed=true]{color:#edb75e;border-color:#9a7948}
+.imagery-credit{position:absolute;bottom:113px;left:20px;right:20px;text-align:center;z-index:2;color:#9cabbc;font:10px ui-monospace,monospace;pointer-events:none}
+.orbit-ring{opacity:.28}.world{background:radial-gradient(ellipse at 50% 55%,#142d40 0,#07121d 48%,#040912 82%)}
+.panel{box-shadow:0 8px 26px #0002}.world-heading h1{font-weight:450;letter-spacing:-1.4px}.world-heading p{font-size:12px}
+.expanded-globe .left,.expanded-globe .right{display:none}.expanded-globe .workspace{grid-template-columns:1fr}.expanded-globe .world{height:calc(100dvh - 145px);min-height:560px}.expanded-globe .timeline{grid-column:1}
+.globe-toolbar{max-width:calc(100% - 20px);flex-wrap:wrap;justify-content:center;width:max-content}
+.watch svg{width:17px;height:17px;vertical-align:middle}.event{transition:border-color .15s,background .15s}.event:hover{background:#1c2c3e}
+@media(max-width:680px){.view-options{left:20px;top:127px}.imagery-credit{font-size:9px;bottom:121px}.expanded-globe .world{min-height:590px}.entity-marker{width:32px;height:32px;padding:7px}}
+@media(prefers-reduced-motion:reduce){.entity-marker,.event{transition:none}}

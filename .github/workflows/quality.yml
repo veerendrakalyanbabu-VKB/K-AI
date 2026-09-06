@@ -18,3 +18,4 @@ jobs:
       - run: python -m pytest -q
       - run: python -m compileall -q app
       - run: node --check app/static/app.js
+      - run: node --test tests/controls.test.cjs

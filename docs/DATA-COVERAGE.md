@@ -1,5 +1,15 @@
 # World Pulse: globe release
 
+## Globe refinement release
+
+Small 18px SVG symbols now have a larger interaction target and a hover highlight; the size toggle enables 24px symbols. The globe adds a thinner atmosphere, terrain bump shading, damped controls, day/night static imagery, and an expanded view. Night imagery is an artistic basemap selection, not a real-time solar terminator or live Earth video. Reset/rotate correctly exit follow mode.
+
+Aircraft registration and type codes appear when supplied. Departure, destination, ETA, photos, satellite owner/launch/status, phone AR, and complete worldwide movement coverage are **not implemented**. These require separately scoped data and device integrations. Do not present position snapshots as full FlightRadar24/MarineTraffic parity.
+
+When Open-Meteo cannot serve weather, the server tries MET Norway Locationforecast with the application URL as its identifying User-Agent. Cached responses respect Expires and use If-Modified-Since. The closest forecast within one hour is returned with MET Norway attribution and a CC BY 4.0 link. Wind is converted from m/s to km/h; rainfall is forecast for the next hour. No rainfall value is inferred when missing. The cache lasts at least 30 minutes. Forecasts are not official alerts.
+
+Verification: `node --test tests/controls.test.cjs` tests view toggles, zoom/rotation/reset, no-WebGL disabled controls, and safe detail rendering. Python tests cover forecast normalization and feed behavior. These are automated logic checks, not visual or exhaustive real-browser QA.
+
 ## Deployment access and follow controls
 
 Live inspection on September 6 confirmed the Render marine bridge receiving reports and the ISS TLE fallback responding. The flight endpoint reported access denial; weather reported a quota error. These are provider failures, not evidence of zero activity.

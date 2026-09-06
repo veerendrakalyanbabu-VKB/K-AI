@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import httpx
 import websockets
 from fastapi import APIRouter, HTTPException
+from app.weather import forecast
 
 router = APIRouter()
 CITIES = {"Hyderabad": (17.385, 78.487), "Mumbai": (19.076, 72.878), "New Delhi": (28.614, 77.209), "Chennai": (13.083, 80.271), "Bengaluru": (12.972, 77.595), "Kolkata": (22.573, 88.364)}
@@ -211,6 +212,10 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
         result = await cached(layer + city, url, 900, {"latitude": lat, "longitude": lon, "current": "us_aqi,pm2_5,pm10" if air else "temperature_2m,wind_speed_10m,precipitation", "timezone": "UTC"})
         data = result["data"] or {}
         current = data.get("current", {})
+        if not air and (result["status"] != "available" or not current):
+            alternate = await forecast(city, lat, lon)
+            if alternate.get("status") == "available":
+                return alternate
         item = {"id": layer + city, "title": city + (" · Air quality" if air else " · Weather"), "lat": lat, "lng": lon, "time": current.get("time", "") + "Z" if current.get("time") else None, "metrics": current, "units": data.get("current_units", {}), "source": "Open-Meteo / CAMS" if air else "Open-Meteo", "url": "https://open-meteo.com/", "layer": layer}
         return {**result, "data": None, "items": [item] if current else [], "coverage": "Selected-city model estimate. US AQI, not Indian AQI." if air else "Selected-city weather model estimate; not an official warning feed."}
     if layer == "traffic":
@@ -235,5 +240,5 @@ def normalize_adsb(data, source="adsb.lol contributors · ODbL 1.0", source_url=
         age = plane.get("seen_pos")
         if not position(lat, lon) or not isinstance(age, (int, float)) or not 0 <= age <= 120:
             continue
-        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
+        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "registration": plane.get("r"), "aircraft_type": plane.get("t"), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
     return items
