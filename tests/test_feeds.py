@@ -82,3 +82,20 @@ def test_dashboard_and_health():
     page = client.get("/")
     assert page.status_code == 200 and 'id="drawer"' in page.text
     assert client.get("/api/layers/cams").json()["status"] == "links_only"
+
+
+def test_provider_quota_reason_does_not_leak_key(monkeypatch):
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        async def get(self, *args, **kwargs):
+            return httpx.Response(429, request=httpx.Request("GET", "https://example.org/?key=private-value"))
+    monkeypatch.setattr(feeds.httpx, "AsyncClient", Client)
+    result = asyncio.run(feeds.cached("test-quota", "https://example.org", 300))
+    assert result["status"] == "unavailable"
+    assert "quota reached" in result["reason"]
+    assert "private-value" not in str(result)

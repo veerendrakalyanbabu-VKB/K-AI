@@ -39,9 +39,11 @@ async def cached(name, url, ttl, params=None, raw=False):
                 data = response.text if raw else response.json()
             result = {"status": "available", "fetched_at": now(), "data": data}
             delay = ttl
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, ValueError) as exc:
             # No exception text: provider errors can contain query-string keys.
             result = {"status": "stale" if entry and entry[1].get("data") else "unavailable", "fetched_at": entry[1].get("fetched_at") if entry else None, "data": entry[1].get("data") if entry else None}
+            code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            result["reason"] = {401: "Provider requires valid authentication", 403: "Provider denied access", 429: "Provider quota reached; waiting before retry"}.get(code, "Provider request failed; waiting before retry")
             delay = max(300, ttl)
         cache[name] = (time.monotonic() + delay, result)
         return result
