@@ -15,7 +15,7 @@ function initGlobe() {
  if(!window.Globe){$('#globe').innerHTML='<div class="globe-message">3D library could not load. All available records remain accessible below.</div>';return;}
  try {
  const host=$('#globe'); host.innerHTML='';
- globe=Globe()(host).backgroundColor('rgba(0,0,0,0)').globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/earth-blue-marble.jpg')
+ globe=new Globe(host).backgroundColor('rgba(0,0,0,0)').globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/earth-blue-marble.jpg')
  .bumpImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/earth-topology.png')
  .atmosphereColor('#719fbf').atmosphereAltitude(.16)
  .pointLat('lat').pointLng('lng').pointAltitude(d=>d.altitude||.008).pointRadius(d=>d.layer==='space'?.16:.13)
@@ -78,13 +78,13 @@ function renderLocal(){
 async function loadLayer(key){
  if(pending.has(key))return;
  pending.add(key);render();
- const version=generation;
+ const version=generation, cityScoped=['weather','air','traffic','aviation'].includes(key);
  try{
   const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(25000)});
   if(!response.ok)throw Error('Source unavailable');
   const data=await response.json();
-  if(version===generation)state[key]=data;
- }catch{if(version===generation)state[key]={status:'unavailable',items:[],coverage:'Request failed or timed out. Try Refresh.'};}
+  if(!cityScoped||version===generation)state[key]=data;
+ }catch{if(!cityScoped||version===generation)state[key]={status:'unavailable',items:[],coverage:'Request failed or timed out. Try Refresh.'};}
  finally{pending.delete(key);render();if(version!==generation&&['weather','air','traffic','aviation'].includes(key)&&(enabled.has(key)||['weather','air'].includes(key)))loadLayer(key);}
 }
 function toggle(key){
