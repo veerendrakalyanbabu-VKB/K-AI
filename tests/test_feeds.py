@@ -140,3 +140,22 @@ def test_iss_fallback_is_not_presented_as_full_catalog(monkeypatch):
     assert len(result["items"]) == 1
     assert "ISS-only" in result["coverage"]
     assert "Where the ISS at?" in result["items"][0]["source"]
+
+
+def test_ais_timestamp_is_browser_parseable():
+    assert feeds.ais_time("2026-09-06 15:45:19.604411715 +0000 UTC") == "2026-09-06T15:45:19.604411+00:00"
+    assert feeds.ais_time("invalid") is None
+
+
+def test_separate_flight_provider_preserves_its_license(monkeypatch):
+    async def denied(*args, **kwargs):
+        return {"status": "unavailable", "reason": "Provider denied access", "data": None}
+    async def alternate(*args):
+        return {"status": "available", "data": {"now": 1788690000, "ac": [{"hex": "abc123", "lat": 17, "lon": 78, "seen_pos": 1}]}}
+    monkeypatch.setattr(feeds, "cached", denied)
+    monkeypatch.setattr(feeds, "fi_snapshot", alternate)
+    result = asyncio.run(feeds.layer_data("aviation"))
+    assert result["status"] == "available"
+    assert result["items"][0]["source"].startswith("adsb.fi")
+    assert "non-commercial" in result["coverage"]
+    assert "ODbL" not in result["items"][0]["source"]

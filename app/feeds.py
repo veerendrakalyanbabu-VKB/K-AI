@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import re
 import time
 from datetime import datetime, timezone
 
@@ -19,6 +20,23 @@ marine_status = "not_configured"
 marine_task = None
 marine_diagnostics = {"messages": 0, "positions": 0, "last_message_at": None}
 AIS_TYPES = ("PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport")
+
+
+def ais_time(raw):
+    if not isinstance(raw, str):
+        return None
+    try:
+        text = re.sub(r" ([+-]\d{2})(\d{2}) UTC$", r"\1:\2", raw).replace(" ", "T", 1)
+        return datetime.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+async def fi_snapshot(city, lat, lon):
+    # Separate provider, public regional endpoint; never use feeder-only endpoints.
+    async with locks.setdefault("fi-rate", asyncio.Lock()):
+        await asyncio.sleep(1.05)
+        return await cached("fi:" + city, f"https://opendata.adsb.fi/api/v3/lat/{lat}/lon/{lon}/dist/250", 180)
 
 
 def now():
@@ -73,7 +91,7 @@ def ingest_vessel(message):
     marine_diagnostics["positions"] += 1
     if len(vessels) >= 1500 and mmsi not in vessels:
         vessels.pop(next(iter(vessels)))
-    vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "time": meta.get("time_utc"), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
+    vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "time": ais_time(meta.get("time_utc")), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
 
 
 async def stream_marine():
@@ -180,6 +198,11 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
             if fallback["status"] == "available" and planes:
                 return {**fallback, "data": None, "items": planes, "coverage": f"{city} · 250 nautical mile radius. adsb.lol contributors, ODbL 1.0. Reported positions cached 2 minutes; incomplete receiver coverage. OpenSky fallback."}
             if not items:
+                alternate = await fi_snapshot(city, lat, lon)
+                alternate_planes = normalize_adsb(alternate.get("data") or {}, source="adsb.fi · personal non-commercial data", source_url="https://adsb.fi/")
+                if alternate["status"] == "available" and alternate_planes:
+                    return {**alternate, "data": None, "items": alternate_planes, "coverage": f"{city} · 250 nautical mile radius, three-minute snapshots from adsb.fi. Personal non-commercial use only; incomplete receiver coverage.", "provider_checks": {"OpenSky": result["status"], "adsb.lol": fallback.get("reason", fallback["status"]), "adsb.fi": alternate["status"]}}
+                fallback = {**fallback, "provider_checks": {"OpenSky": result.get("reason", result["status"]), "adsb.lol": fallback.get("reason", fallback["status"]), "adsb.fi": alternate.get("reason", alternate["status"])}}
                 return {**fallback, "data": None, "items": planes, "coverage": f"{city} · OpenSky and adsb.lol checked. adsb.lol contributors, ODbL 1.0; regional coverage may be empty.", "reason": fallback.get("reason", "No positioned aircraft returned by either source")}
         return {**result, "data": None, "items": items, "coverage": f"{city} ±1° · reported aircraft positions, cached 30 min for anonymous quota. Limited receiver coverage; not continuous live flights."}
     if layer in ("weather", "air"):
@@ -200,7 +223,7 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
     raise HTTPException(404, "Unknown layer")
 
 
-def normalize_adsb(data):
+def normalize_adsb(data, source="adsb.lol contributors · ODbL 1.0", source_url="https://www.adsb.lol/docs/open-data/api/"):
     items = []
     timestamp = data.get("now")
     if not isinstance(timestamp, (int, float)):
@@ -212,5 +235,5 @@ def normalize_adsb(data):
         age = plane.get("seen_pos")
         if not position(lat, lon) or not isinstance(age, (int, float)) or not 0 <= age <= 120:
             continue
-        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": "adsb.lol contributors · ODbL 1.0", "url": "https://www.adsb.lol/docs/open-data/api/", "layer": "aviation"})
+        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
     return items

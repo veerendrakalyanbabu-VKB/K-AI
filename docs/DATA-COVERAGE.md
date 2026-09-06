@@ -1,5 +1,13 @@
 # World Pulse: globe release
 
+## Deployment access and follow controls
+
+Live inspection on September 6 confirmed the Render marine bridge receiving reports and the ISS TLE fallback responding. The flight endpoint reported access denial; weather reported a quota error. These are provider failures, not evidence of zero activity.
+
+An additional independent [adsb.fi public regional endpoint](https://github.com/adsbfi/opendata) is now tried when the other flight providers cannot return records. This source permits **personal, non-commercial use only**. Keep its in-app source link; obtain appropriate permission or remove this adapter before commercial/government operational use. It uses the public v3 radius endpoint, never the feeder-only global snapshot. A shared lock spaces calls more than one second apart; results cache for three minutes. No alternate IP, proxy or authentication bypass is used.
+
+Icon budgets now reserve 50 for satellites, 200 for aircraft and 250 for vessels, avoiding vessel counts hiding the satellite icon. Additional records remain points. Click a record and choose **Follow incoming position updates** to keep the camera on its reported/estimated location as new snapshots arrive. No aircraft or vessel movement is invented between snapshots. Stop following restores manual navigation. Provider timestamps are retained, and AIS timestamps are normalized to ISO 8601 for browsers.
+
 ## Resilience and icon update
 
 Aircraft, vessels and satellites use original SVG icon markers; up to 500 icons are drawn at once, with additional records drawn as points and retained in the list. Visual reference: [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view). No code, imagery or 3D assets were copied from that project.

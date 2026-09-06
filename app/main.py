@@ -183,7 +183,7 @@ async def home() -> FileResponse:
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "release": os.getenv("RENDER_GIT_COMMIT", "local")}
 
 
 @app.get("/api/world-state")

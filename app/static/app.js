@@ -9,6 +9,7 @@ const config = {
 };
 const state = {}, enabled = new Set(['earth','signals','space','weather','aviation','marine','traffic']), pending = new Set();
 let globe, generation=0, records=[], satelliteRecords=[];
+let following=null, lastFollowPosition='';
 const markerPaths={aviation:'M12 2L14 9L22 14V16L14 13L14 19L17 21V23L12 21L7 23V21L10 19V13L2 16V14L10 9Z',marine:'M5 10V5H10V2H14V5H19V10L22 12L19 20H5L2 12ZM7 7V10L12 8L17 10V7ZM4 22L8 21L12 22L16 21L20 22',space:'M9 8H15V16H9ZM1 6H6V18H1ZM18 6H23V18H18ZM6 11H9M15 11H18M12 3V8M12 16V21'};
 function markerSVG(layer){return '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="'+markerPaths[layer]+'" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';}
 for(const key of Object.keys(markerPaths))config[key][1]=markerSVG(key);
@@ -56,7 +57,8 @@ function render(){
  records=Object.keys(config).filter(k=>enabled.has(k)&&k!=='space').flatMap(k=>state[k]?.items||[]).concat(satelliteRecords);
  const query=$('#search').value.trim().toLowerCase();
  records=records.filter(x=>String(x.title).toLowerCase().includes(query));
- if(globe){const icons=records.filter(x=>markerPaths[x.layer]).slice(0,500), iconSet=new Set(icons);globe.htmlElementsData(icons);globe.pointsData(records.filter(x=>!iconSet.has(x)));globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);}
+ if(globe){const icons=['space','aviation','marine'].flatMap(layer=>records.filter(x=>x.layer===layer).slice(0,layer==='space'?50:layer==='aviation'?200:250)), iconSet=new Set(icons);globe.htmlElementsData(icons);globe.pointsData(records.filter(x=>!iconSet.has(x)));globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);}
+ if(following&&globe){const target=records.find(x=>x.layer===following.layer&&x.id===following.id);if(target){const position=target.lat+','+target.lng;if(position!==lastFollowPosition){globe.pointOfView({lat:target.lat,lng:target.lng,altitude:target.layer==='space'?1.6:.7},500);lastFollowPosition=position;}$('#unfollow').textContent='Stop following';$('#unfollow').title=target.title+' · '+stamp(target.time);}else{$('#unfollow').textContent='Target unavailable';}}
  $('#visible-count').textContent=records.length;
  $('#layers').innerHTML=Object.entries(config).map(([key,[name,icon,color]])=>'<button class="layer" data-layer="'+key+'" aria-pressed="'+enabled.has(key)+'" style="--color:'+color+'"><span class="icon">'+icon+'</span><span class="copy">'+name+'<small>'+esc(pending.has(key)?'Loading…':state[key]?.status||'Select to load')+'</small></span><span class="count">'+(key==='space'?satelliteRecords.length:(state[key]?.items?.length??'—'))+'</span></button>').join('');
  $('#layers').querySelectorAll('button').forEach(b=>b.onclick=()=>toggle(b.dataset.layer));
@@ -94,7 +96,7 @@ function renderLocal(){
  $('#local').innerHTML+='<div class="risk">'+(!complete?'Local assessment incomplete: weather missing or stale.':flags.length?esc(flags.join(' · '))+' · illustrative weather triggers':'No configured weather threshold exceeded. This is not an all-clear.')+'</div><p class="muted">Weather valid: '+esc(stamp(weather?.time))+'<br>Air valid: '+esc(stamp(air?.time))+'<br>Model estimates · US AQI is not Indian AQI.</p>';
  const t=state.traffic?.items?.[0];
  if(t)$('#local').innerHTML+='<div class="note">Road sample: '+esc(t.metrics.currentSpeed)+' / '+esc(t.metrics.freeFlowSpeed)+' km/h free-flow. One segment only.</div>';
- $('#local').innerHTML+='<div class="section-head"><h2>Transport coverage</h2></div>'+['aviation','marine','traffic'].map(key=>'<button class="watch" data-transport="'+key+'"><b style="color:'+config[key][2]+'">'+config[key][1]+' '+config[key][0]+'</b><br>'+esc(transportStatus(key))+'<small style="display:block;color:var(--muted)">'+(key==='aviation'?(state.aviation?.items?.[0]?.source?.startsWith('adsb.lol')?'250 nm radius · snapshots cached 2 min':'City region · snapshots cached 30 min'):key==='marine'?'Selected sea sectors · expires after 10 min':'City center · one sampled road')+' · '+(enabled.has(key)?'Layer on':'Layer off')+'</small></button>').join('');
+ $('#local').innerHTML+='<div class="section-head"><h2>Transport coverage</h2></div>'+['aviation','marine','traffic'].map(key=>'<button class="watch" data-transport="'+key+'"><b style="color:'+config[key][2]+'">'+config[key][1]+' '+config[key][0]+'</b><br>'+esc(transportStatus(key))+'<small style="display:block;color:var(--muted)">'+(key==='aviation'?(state.aviation?.items?.[0]?.source?.startsWith('adsb.lol')?'250 nm radius · snapshots cached 2 min':state.aviation?.items?.[0]?.source?.startsWith('adsb.fi')?'250 nm radius · snapshots cached 3 min':'City region · snapshots cached 30 min'):key==='marine'?'Selected sea sectors · expires after 10 min':'City center · one sampled road')+' · '+(enabled.has(key)?'Layer on':'Layer off')+'</small></button>').join('');
  $('#local').querySelectorAll('[data-transport]').forEach(b=>b.onclick=()=>{const key=b.dataset.transport;enabled.add(key);const item=state[key]?.items?.[0];if(item)showDetail(item);else showCoverage(key);render();});
 }
 async function loadLayer(key){
@@ -102,7 +104,7 @@ async function loadLayer(key){
  pending.add(key);render();
  const version=generation, cityScoped=['weather','air','traffic','aviation'].includes(key);
  try{
-  const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(45000)});
+  const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(60000)});
   if(!response.ok)throw Error('Source unavailable');
   const data=await response.json();
   if(!cityScoped||version===generation)state[key]=data;
@@ -118,18 +120,22 @@ function showCoverage(key){
  const data=state[key]||{};
  $('#detail').innerHTML='<div class="eyebrow">SOURCE COVERAGE</div><h2>'+config[key][0]+'</h2><p>'+esc(data.coverage||'Source request has not completed.')+'</p><p class="note">'+esc(data.status||'Loading')+(data.reason?' · '+esc(data.reason):'')+'</p>'+ (data.links||[]).map(l=>safeLink(l.url)?'<p><a target="_blank" rel="noopener noreferrer" href="'+esc(safeLink(l.url))+'">'+esc(l.title)+' ↗</a></p>':'').join('');
  if(data.diagnostics)$('#detail').innerHTML+='<div class="note">Stream messages: '+esc(data.diagnostics.messages)+'<br>Accepted position reports: '+esc(data.diagnostics.positions)+'<br>Last message: '+esc(stamp(data.diagnostics.last_message_at))+'</div>';
+ if(data.provider_checks)$('#detail').innerHTML+='<dl>'+Object.entries(data.provider_checks).map(([name,value])=>'<dt>'+esc(name)+'</dt><dd>'+esc(value)+'</dd>').join('')+'</dl>';
  openDrawer();
 }
 function openDrawer(){if(!$('#drawer').open)$('#drawer').showModal();}
 function showDetail(item){
  const source=state[item.layer]||{},url=safeLink(item.url);
- const details={...item.metrics,altitude_km:item.altitude_km,altitude_m:item.altitude_m,speed_kn:item.speed_kn,speed_ms:item.speed_ms,element_epoch:item.epoch,received_at:item.received_at};
+ const details={...item.metrics,altitude_km:item.altitude_km,altitude_m:item.altitude_m,altitude_ft:item.altitude_ft,speed_kn:item.speed_kn,speed_ms:item.speed_ms,element_epoch:item.epoch,received_at:item.received_at};
  $('#detail').innerHTML='<div class="eyebrow">'+config[item.layer][0].toUpperCase()+' / EVIDENCE</div><h2>'+esc(item.title)+'</h2><p class="muted">'+esc(source.coverage)+'</p><dl><dt>Latitude / longitude</dt><dd>'+Number(item.lat).toFixed(3)+' / '+Number(item.lng).toFixed(3)+'</dd><dt>Record time</dt><dd>'+esc(stamp(item.time))+'</dd><dt>Source</dt><dd>'+esc(item.source)+'</dd><dt>Fetched</dt><dd>'+esc(stamp(source.fetched_at))+'</dd>'+Object.entries(details).filter(([k,v])=>v!=null&&!['time','interval'].includes(k)).map(([k,v])=>'<dt>'+esc(k.replaceAll('_',' '))+'</dt><dd>'+esc(v)+' '+esc(item.units?.[k]||'')+'</dd>').join('')+'</dl><div class="note">Confidence: not independently assessed. Check source age, coverage, and official guidance.</div>'+(url?'<p><a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Open original source ↗</a></p>':'');
+ if(markerPaths[item.layer]){const button=document.createElement('button');button.textContent='Follow incoming position updates';button.onclick=()=>{following={layer:item.layer,id:item.id};lastFollowPosition='';if(globe)globe.controls().autoRotate=false;$('#rotate').textContent='▶ Rotate';$('#rotate').setAttribute('aria-pressed','false');$('#unfollow').hidden=false;$('#drawer').close();render();};$('#detail').appendChild(button);}
  openDrawer();
  if(globe)globe.pointOfView({lat:item.lat,lng:item.lng,altitude:item.layer==='traffic'?.01:1.7},700);
 }
 async function refresh(){ $('#refresh').disabled=true;await Promise.all([...new Set([...enabled,'weather','air'])].map(loadLayer));$('#refresh').disabled=false; }
 $('#event-filter').innerHTML+=Object.entries(config).map(([k,v])=>'<option value="'+k+'">'+v[0]+'</option>').join('');
+$('#rotate').insertAdjacentHTML('afterend','<button id="unfollow" hidden>Stop following</button>');
+$('#unfollow').onclick=()=>{following=null;lastFollowPosition='';$('#unfollow').hidden=true;};
 $('#refresh').onclick=refresh;$('#search').oninput=render;$('#event-filter').onchange=render;
 $('#close').onclick=()=>$('#drawer').close();
 $('#city').onchange=async()=>{generation++;for(const key of ['weather','air','traffic','aviation'])delete state[key];$('#home').click();render();await refresh();};
