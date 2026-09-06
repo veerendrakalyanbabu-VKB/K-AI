@@ -9,6 +9,13 @@ const config = {
 };
 const state = {}, enabled = new Set(['earth','signals','space','weather','aviation','marine','traffic']), pending = new Set();
 let globe, generation=0, records=[], satelliteRecords=[];
+const markerPaths={aviation:'M12 2L14 9L22 14V16L14 13L14 19L17 21V23L12 21L7 23V21L10 19V13L2 16V14L10 9Z',marine:'M5 10V5H10V2H14V5H19V10L22 12L19 20H5L2 12ZM7 7V10L12 8L17 10V7ZM4 22L8 21L12 22L16 21L20 22',space:'M9 8H15V16H9ZM1 6H6V18H1ZM18 6H23V18H18ZM6 11H9M15 11H18M12 3V8M12 16V21'};
+function markerSVG(layer){return '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="'+markerPaths[layer]+'" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';}
+for(const key of Object.keys(markerPaths))config[key][1]=markerSVG(key);
+function markerElement(item){
+ const button=document.createElement('button');button.className='entity-marker';button.style.cssText='color:'+config[item.layer][2]+';background:#0c1420dd;border:1px solid currentColor;border-radius:50%;width:34px;height:34px;padding:4px;display:grid;place-items:center;box-shadow:0 0 12px #0008;pointer-events:auto';
+ button.innerHTML=markerSVG(item.layer);button.title=item.title+' · '+item.source;button.setAttribute('aria-label',button.title);button.onclick=()=>showDetail(item);return button;
+}
 const coords = {Hyderabad:[17.385,78.487],Mumbai:[19.076,72.878],'New Delhi':[28.614,77.209],Chennai:[13.083,80.271],Bengaluru:[12.972,77.595],Kolkata:[22.573,88.364]};
 function safeLink(url) { try {const u=new URL(url);return u.protocol==='https:'?u.href:null;}catch{return null;} }
 function initGlobe() {
@@ -22,6 +29,7 @@ function initGlobe() {
  .pointColor(d=>config[d.layer][2]).pointLabel(d=>esc(d.title)+'<br>'+esc(d.source)).onPointClick(showDetail)
  .pathPoints('path').pathPointLat('latitude').pathPointLng('longitude').pathColor(()=> '#f7cc76').pathStroke(3).pathTransitionDuration(0)
  .pointsTransitionDuration(0);
+ globe.htmlLat('lat').htmlLng('lng').htmlAltitude(d=>d.altitude||.008).htmlElement(markerElement);
  globe.pointOfView({lat:20,lng:70,altitude:2.25});
  globe.controls().autoRotateSpeed=.3;
  new ResizeObserver(()=>{globe.width(host.clientWidth).height(host.clientHeight);}).observe(host);
@@ -39,7 +47,7 @@ function propagateSatellites(){
    const geo=satellite.eciToGeodetic(pv.position,satellite.gstime(date));
    const lat=satellite.degreesLat(geo.latitude),lng=satellite.degreesLong(geo.longitude);
    if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
-   satelliteRecords.push({title:entry.title,id:entry.title,lat,lng,altitude:Math.max(.015,geo.height/6371),altitude_km:Math.round(geo.height),time:date.toISOString(),epoch:epoch.toISOString(),source:'CelesTrak · SGP4 estimate',url:'https://celestrak.org/NORAD/elements/',layer:'space'});
+   satelliteRecords.push({title:entry.title,id:entry.title,lat,lng,altitude:Math.max(.015,geo.height/6371),altitude_km:Math.round(geo.height),time:date.toISOString(),epoch:epoch.toISOString(),source:entry.source||'CelesTrak · SGP4 estimate',url:entry.url||'https://celestrak.org/NORAD/elements/',layer:'space'});
   }catch{ /* A bad element record does not disable other satellites. */ }
  }
 }
@@ -48,7 +56,7 @@ function render(){
  records=Object.keys(config).filter(k=>enabled.has(k)&&k!=='space').flatMap(k=>state[k]?.items||[]).concat(satelliteRecords);
  const query=$('#search').value.trim().toLowerCase();
  records=records.filter(x=>String(x.title).toLowerCase().includes(query));
- if(globe){globe.pointsData(records);globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);}
+ if(globe){const icons=records.filter(x=>markerPaths[x.layer]).slice(0,500), iconSet=new Set(icons);globe.htmlElementsData(icons);globe.pointsData(records.filter(x=>!iconSet.has(x)));globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);}
  $('#visible-count').textContent=records.length;
  $('#layers').innerHTML=Object.entries(config).map(([key,[name,icon,color]])=>'<button class="layer" data-layer="'+key+'" aria-pressed="'+enabled.has(key)+'" style="--color:'+color+'"><span class="icon">'+icon+'</span><span class="copy">'+name+'<small>'+esc(pending.has(key)?'Loading…':state[key]?.status||'Select to load')+'</small></span><span class="count">'+(key==='space'?satelliteRecords.length:(state[key]?.items?.length??'—'))+'</span></button>').join('');
  $('#layers').querySelectorAll('button').forEach(b=>b.onclick=()=>toggle(b.dataset.layer));
@@ -86,7 +94,7 @@ function renderLocal(){
  $('#local').innerHTML+='<div class="risk">'+(!complete?'Local assessment incomplete: weather missing or stale.':flags.length?esc(flags.join(' · '))+' · illustrative weather triggers':'No configured weather threshold exceeded. This is not an all-clear.')+'</div><p class="muted">Weather valid: '+esc(stamp(weather?.time))+'<br>Air valid: '+esc(stamp(air?.time))+'<br>Model estimates · US AQI is not Indian AQI.</p>';
  const t=state.traffic?.items?.[0];
  if(t)$('#local').innerHTML+='<div class="note">Road sample: '+esc(t.metrics.currentSpeed)+' / '+esc(t.metrics.freeFlowSpeed)+' km/h free-flow. One segment only.</div>';
- $('#local').innerHTML+='<div class="section-head"><h2>Transport coverage</h2></div>'+['aviation','marine','traffic'].map(key=>'<button class="watch" data-transport="'+key+'"><b style="color:'+config[key][2]+'">'+config[key][1]+' '+config[key][0]+'</b><br>'+esc(transportStatus(key))+'<small style="display:block;color:var(--muted)">'+(key==='aviation'?'City region · snapshots cached 30 min':key==='marine'?'Indian Ocean sector · expires after 10 min':'City center · one sampled road')+' · '+(enabled.has(key)?'Layer on':'Layer off')+'</small></button>').join('');
+ $('#local').innerHTML+='<div class="section-head"><h2>Transport coverage</h2></div>'+['aviation','marine','traffic'].map(key=>'<button class="watch" data-transport="'+key+'"><b style="color:'+config[key][2]+'">'+config[key][1]+' '+config[key][0]+'</b><br>'+esc(transportStatus(key))+'<small style="display:block;color:var(--muted)">'+(key==='aviation'?(state.aviation?.items?.[0]?.source?.startsWith('adsb.lol')?'250 nm radius · snapshots cached 2 min':'City region · snapshots cached 30 min'):key==='marine'?'Selected sea sectors · expires after 10 min':'City center · one sampled road')+' · '+(enabled.has(key)?'Layer on':'Layer off')+'</small></button>').join('');
  $('#local').querySelectorAll('[data-transport]').forEach(b=>b.onclick=()=>{const key=b.dataset.transport;enabled.add(key);const item=state[key]?.items?.[0];if(item)showDetail(item);else showCoverage(key);render();});
 }
 async function loadLayer(key){
@@ -94,7 +102,7 @@ async function loadLayer(key){
  pending.add(key);render();
  const version=generation, cityScoped=['weather','air','traffic','aviation'].includes(key);
  try{
-  const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(25000)});
+  const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(45000)});
   if(!response.ok)throw Error('Source unavailable');
   const data=await response.json();
   if(!cityScoped||version===generation)state[key]=data;
@@ -109,6 +117,7 @@ function toggle(key){
 function showCoverage(key){
  const data=state[key]||{};
  $('#detail').innerHTML='<div class="eyebrow">SOURCE COVERAGE</div><h2>'+config[key][0]+'</h2><p>'+esc(data.coverage||'Source request has not completed.')+'</p><p class="note">'+esc(data.status||'Loading')+(data.reason?' · '+esc(data.reason):'')+'</p>'+ (data.links||[]).map(l=>safeLink(l.url)?'<p><a target="_blank" rel="noopener noreferrer" href="'+esc(safeLink(l.url))+'">'+esc(l.title)+' ↗</a></p>':'').join('');
+ if(data.diagnostics)$('#detail').innerHTML+='<div class="note">Stream messages: '+esc(data.diagnostics.messages)+'<br>Accepted position reports: '+esc(data.diagnostics.positions)+'<br>Last message: '+esc(stamp(data.diagnostics.last_message_at))+'</div>';
  openDrawer();
 }
 function openDrawer(){if(!$('#drawer').open)$('#drawer').showModal();}

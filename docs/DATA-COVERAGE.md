@@ -1,5 +1,17 @@
 # World Pulse: globe release
 
+## Resilience and icon update
+
+Aircraft, vessels and satellites use original SVG icon markers; up to 500 icons are drawn at once, with additional records drawn as points and retained in the list. Visual reference: [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view). No code, imagery or 3D assets were copied from that project.
+
+Flights fall back to [adsb.lol](https://www.adsb.lol/docs/open-data/api/) when OpenSky has no usable response. Attribution: **adsb.lol contributors, ODbL 1.0**. The fallback covers 250 nautical miles around the selected city, caches for two minutes, and rejects positions older than 120 seconds at the provider snapshot time. It is a receiver-limited reported snapshot, not worldwide completeness. Data remains under ODbL, separate from this repository's code license.
+
+When CelesTrak is unavailable, [Where the ISS at?](https://wheretheiss.at/w/developer) supplies an ISS-only TLE fallback. Its source is displayed in the drawer. Positions remain SGP4 estimates, and the same 14-day element age limit applies. No bundled old TLE or synthetic position is used to fill an outage.
+
+AISStream now accepts PositionReport, StandardClassBPositionReport and ExtendedClassBPositionReport. Coverage includes the Indian Ocean/Singapore sector (0–30°N, 60–106°E), southern North Sea (50–54°N, 2°W–6°E) and Florida coast (24–31°N, 83–78°W). The same 1,500-record bound and ten-minute expiry apply. `diagnostics` reports counts and last received message time; a connected socket does not guarantee positioned vessels.
+
+Temporary connection/time-out failures retry after five minutes. Quota/authentication errors retain conservative backoff, and CelesTrak retains its two-hour interval. These recovery changes do not guarantee upstream availability.
+
 The dashboard is a working, limited-coverage public-data prototype, not a comprehensive real-time world model. It does not currently use an LLM. It never issues official alerts.
 
 | Layer | Actual implementation | Refresh / limitations |

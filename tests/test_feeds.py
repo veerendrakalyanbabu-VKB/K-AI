@@ -99,3 +99,44 @@ def test_provider_quota_reason_does_not_leak_key(monkeypatch):
     assert result["status"] == "unavailable"
     assert "quota reached" in result["reason"]
     assert "private-value" not in str(result)
+
+
+def test_class_b_report_position_and_identity_fallback():
+    feeds.vessels.clear()
+    feeds.ingest_vessel({"MessageType": "StandardClassBPositionReport", "Message": {"StandardClassBPositionReport": {"UserID": 234567890, "Latitude": 1.3, "Longitude": 103.8, "Sog": 9}}})
+    assert feeds.vessels["234567890"]["lat"] == 1.3
+    assert feeds.vessels["234567890"]["speed_kn"] == 9
+    feeds.vessels.clear()
+
+
+def test_adsb_rejects_old_and_invalid_coordinates():
+    planes = feeds.normalize_adsb({"now": 1788690000000, "ac": [{"hex": "abc123", "flight": " TEST ", "lat": 17, "lon": 78, "seen_pos": 5}, {"lat": 17, "lon": 78, "seen_pos": 200}, {"lat": 99, "lon": 78, "seen_pos": 1}]})
+    assert len(planes) == 1
+    assert planes[0]["title"] == "TEST"
+    assert planes[0]["source"] == "adsb.lol contributors · ODbL 1.0"
+    assert feeds.normalize_adsb({"ac": []}) == []
+
+
+def test_flight_fallback_has_correct_provenance(monkeypatch):
+    async def fake(name, url, ttl, params=None, raw=False):
+        if name.startswith("adsb:"):
+            return {"status": "available", "data": {"now": 1788690000, "ac": [{"hex": "abc123", "lat": 17, "lon": 78, "seen_pos": 1}]}}
+        return {"status": "unavailable", "data": None}
+    monkeypatch.setattr(feeds, "cached", fake)
+    result = asyncio.run(feeds.layer_data("aviation"))
+    assert result["status"] == "available"
+    assert len(result["items"]) == 1
+    assert "250 nautical mile" in result["coverage"]
+
+
+def test_iss_fallback_is_not_presented_as_full_catalog(monkeypatch):
+    async def fake(name, url, ttl, params=None, raw=False):
+        if name == "iss-tle":
+            return {"status": "available", "data": {"line1": "1 example", "line2": "2 example"}}
+        return {"status": "unavailable", "data": None}
+    monkeypatch.setattr(feeds, "cached", fake)
+    result = asyncio.run(feeds.layer_data("space"))
+    assert result["status"] == "available"
+    assert len(result["items"]) == 1
+    assert "ISS-only" in result["coverage"]
+    assert "Where the ISS at?" in result["items"][0]["source"]

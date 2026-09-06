@@ -17,6 +17,8 @@ cache, locks = {}, {}
 vessels = {}
 marine_status = "not_configured"
 marine_task = None
+marine_diagnostics = {"messages": 0, "positions": 0, "last_message_at": None}
+AIS_TYPES = ("PositionReport", "StandardClassBPositionReport", "ExtendedClassBPositionReport")
 
 
 def now():
@@ -44,22 +46,31 @@ async def cached(name, url, ttl, params=None, raw=False):
             result = {"status": "stale" if entry and entry[1].get("data") else "unavailable", "fetched_at": entry[1].get("fetched_at") if entry else None, "data": entry[1].get("data") if entry else None}
             code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             result["reason"] = {401: "Provider requires valid authentication", 403: "Provider denied access", 429: "Provider quota reached; waiting before retry"}.get(code, "Provider request failed; waiting before retry")
-            delay = max(300, ttl)
+            if isinstance(exc, httpx.TimeoutException):
+                result["reason"] = "Provider timed out"
+            elif isinstance(exc, httpx.ConnectError):
+                result["reason"] = "Provider connection failed"
+            elif isinstance(exc, ValueError):
+                result["reason"] = "Provider returned invalid JSON"
+            delay = max(300, ttl) if code in (401, 403, 429) or "celestrak.org" in url else 300
         cache[name] = (time.monotonic() + delay, result)
         return result
 
 
 def ingest_vessel(message):
-    if message.get("MessageType") != "PositionReport":
+    if message.get("MessageType") not in AIS_TYPES:
         return
     meta = message.get("MetaData", {})
-    report = message.get("Message", {}).get("PositionReport", {})
+    report = message.get("Message", {}).get(message["MessageType"], {})
     lat, lon = meta.get("latitude", meta.get("Latitude")), meta.get("longitude", meta.get("Longitude"))
+    if lat is None or lon is None:
+        lat, lon = report.get("Latitude"), report.get("Longitude")
     if not position(lat, lon) or report.get("Valid") is False:
         return
-    mmsi = str(meta.get("MMSI", ""))
+    mmsi = str(meta.get("MMSI") or report.get("UserID") or "")
     if not mmsi:
         return
+    marine_diagnostics["positions"] += 1
     if len(vessels) >= 1500 and mmsi not in vessels:
         vessels.pop(next(iter(vessels)))
     vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "time": meta.get("time_utc"), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
@@ -75,9 +86,11 @@ async def stream_marine():
         try:
             marine_status = "connecting"
             async with websockets.connect("wss://stream.aisstream.io/v0/stream", compression="deflate", max_size=1048576, ping_interval=20) as socket:
-                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[0, 60], [30, 100]]], "FilterMessageTypes": ["PositionReport"]}))
+                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[0, 60], [30, 106]], [[50, -2], [54, 6]], [[24, -83], [31, -78]]], "FilterMessageTypes": list(AIS_TYPES)}))
                 async for raw in socket:
                     message = json.loads(raw)
+                    marine_diagnostics["messages"] += 1
+                    marine_diagnostics["last_message_at"] = now()
                     if "error" in message or "Error" in message:
                         marine_status = "provider_rejected"
                         return
@@ -116,7 +129,7 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
         expired = [key for key, item in vessels.items() if time.monotonic() - item["received"] > 600]
         for key in expired:
             del vessels[key]
-        return {"status": marine_status, "coverage": "Indian Ocean sector: 0–30°N, 60–100°E. Reports expire after 10 minutes; not all vessels are received.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
+        return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Indian Ocean/Singapore sector (0–30°N, 60–106°E), southern North Sea (50–54°N, 2°W–6°E), Florida coast (24–31°N, 83–78°W). AIS Class A and B. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
     if layer == "cams":
         return {"status": "links_only", "coverage": "Official viewing page; stream availability varies. No private cameras or synthetic camera markers.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
     if layer == "earth":
@@ -148,6 +161,11 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
         for i in range(len(lines) - 2):
             if lines[i + 1].startswith("1 ") and lines[i + 2].startswith("2 "):
                 items.append({"title": lines[i].strip(), "tle1": lines[i + 1], "tle2": lines[i + 2]})
+        if not items:
+            fallback = await cached("iss-tle", "https://api.wheretheiss.at/v1/satellites/25544/tles", 7200)
+            tle = fallback.get("data") or {}
+            if str(tle.get("line1", "")).startswith("1 ") and str(tle.get("line2", "")).startswith("2 "):
+                return {**fallback, "data": None, "items": [{"title": "ISS (ZARYA)", "tle1": tle["line1"], "tle2": tle["line2"], "source": "Where the ISS at? · SGP4 estimate", "url": "https://wheretheiss.at/w/developer"}], "coverage": "ISS-only fallback from Where the ISS at?; CelesTrak catalog unavailable. SGP4 calculated position, not live telemetry. Elements cached 2 hours."}
         return {**result, "data": None, "items": items, "status": result["status"] if items or result["status"] != "available" else "unavailable", "coverage": "Stations catalog only. SGP4 calculated positions, not live tracking. Elements cached 2 hours."}
     if layer == "aviation":
         result = await cached("aviation:" + city, "https://opensky-network.org/api/states/all", 1800, {"lamin": lat - 1, "lamax": lat + 1, "lomin": lon - 1, "lomax": lon + 1})
@@ -156,6 +174,13 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
             if len(s) < 14 or not position(s[6], s[5]) or not s[3]:
                 continue
             items.append({"id": s[0], "title": (s[1] or s[0]).strip(), "lat": s[6], "lng": s[5], "time": datetime.fromtimestamp(s[3], timezone.utc).isoformat(), "altitude_m": s[13] or s[7], "speed_ms": s[9], "source": "OpenSky", "url": "https://opensky-network.org/", "layer": layer})
+        if not items or result["status"] != "available":
+            fallback = await cached("adsb:" + city, f"https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/250", 120)
+            planes = normalize_adsb(fallback.get("data") or {})
+            if fallback["status"] == "available" and planes:
+                return {**fallback, "data": None, "items": planes, "coverage": f"{city} · 250 nautical mile radius. adsb.lol contributors, ODbL 1.0. Reported positions cached 2 minutes; incomplete receiver coverage. OpenSky fallback."}
+            if not items:
+                return {**fallback, "data": None, "items": planes, "coverage": f"{city} · OpenSky and adsb.lol checked. adsb.lol contributors, ODbL 1.0; regional coverage may be empty.", "reason": fallback.get("reason", "No positioned aircraft returned by either source")}
         return {**result, "data": None, "items": items, "coverage": f"{city} ±1° · reported aircraft positions, cached 30 min for anonymous quota. Limited receiver coverage; not continuous live flights."}
     if layer in ("weather", "air"):
         air = layer == "air"
@@ -173,3 +198,19 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
         flow = (result["data"] or {}).get("flowSegmentData", {})
         return {**result, "data": None, "coverage": "One road segment near the selected city center, refreshed at most every 15 min. Not city-wide congestion.", "items": [{"id": city + "traffic", "title": city + " · Road segment", "lat": lat, "lng": lon, "time": result["fetched_at"], "metrics": {k: flow.get(k) for k in ("currentSpeed", "freeFlowSpeed", "confidence", "roadClosure")}, "path": flow.get("coordinates", {}).get("coordinate", []), "source": "TomTom", "url": "https://www.tomtom.com/traffic-index/", "layer": layer}] if flow else []}
     raise HTTPException(404, "Unknown layer")
+
+
+def normalize_adsb(data):
+    items = []
+    timestamp = data.get("now")
+    if not isinstance(timestamp, (int, float)):
+        return items
+    if timestamp > 100000000000:
+        timestamp /= 1000
+    for plane in (data.get("ac") or [])[:1000]:
+        lat, lon = plane.get("lat"), plane.get("lon")
+        age = plane.get("seen_pos")
+        if not position(lat, lon) or not isinstance(age, (int, float)) or not 0 <= age <= 120:
+            continue
+        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": "adsb.lol contributors · ODbL 1.0", "url": "https://www.adsb.lol/docs/open-data/api/", "layer": "aviation"})
+    return items
