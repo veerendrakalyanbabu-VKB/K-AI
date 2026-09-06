@@ -11,6 +11,8 @@ const state = {}, enabled = new Set(['earth','signals','space','weather','aviati
 let globe, generation=0, records=[], satelliteRecords=[];
 let following=null, lastFollowPosition='';
 let earthStyle='day';
+let flightArea=null, satelliteCatalog='stations';
+function exploreFlights(lat,lng){if(!Number.isFinite(lat)||!Number.isFinite(lng))return;flightArea={lat:Math.max(-90,Math.min(90,lat)),lng:((lng+540)%360)-180};generation++;delete state.aviation;enabled.add('aviation');$('#explore-flights').textContent='Flights: '+flightArea.lat.toFixed(1)+', '+flightArea.lng.toFixed(1);loadLayer('aviation');}
 const markerPaths={aviation:'M12 2L14 9L22 14V16L14 13L14 19L17 21V23L12 21L7 23V21L10 19V13L2 16V14L10 9Z',marine:'M5 10V5H10V2H14V5H19V10L22 12L19 20H5L2 12ZM7 7V10L12 8L17 10V7ZM4 22L8 21L12 22L16 21L20 22',space:'M9 8H15V16H9ZM1 6H6V18H1ZM18 6H23V18H18ZM6 11H9M15 11H18M12 3V8M12 16V21'};
 function markerSVG(layer){return '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="'+markerPaths[layer]+'" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg>';}
 for(const key of Object.keys(markerPaths))config[key][1]=markerSVG(key);
@@ -45,18 +47,19 @@ function propagateSatellites(){
  if(!window.satellite || !enabled.has('space'))return;
  for(const entry of state.space?.items||[]){
   try{
-   const sat=satellite.twoline2satrec(entry.tle1,entry.tle2), epoch=new Date((sat.jdsatepoch-2440587.5)*86400000);
+   const sat=entry.omm?satellite.json2satrec(entry.omm):satellite.twoline2satrec(entry.tle1,entry.tle2), epoch=new Date((sat.jdsatepoch-2440587.5)*86400000);
    if(Math.abs(Date.now()-epoch.getTime())>14*86400000)continue;
    const date=new Date(), pv=satellite.propagate(sat,date);
    if(!pv.position)continue;
    const geo=satellite.eciToGeodetic(pv.position,satellite.gstime(date));
    const lat=satellite.degreesLat(geo.latitude),lng=satellite.degreesLong(geo.longitude);
    if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
-   satelliteRecords.push({title:entry.title,id:entry.title,lat,lng,altitude:Math.max(.015,geo.height/6371),altitude_km:Math.round(geo.height),time:date.toISOString(),epoch:epoch.toISOString(),source:entry.source||'CelesTrak · SGP4 estimate',url:entry.url||'https://celestrak.org/NORAD/elements/',layer:'space'});
+   satelliteRecords.push({title:entry.title,id:String(entry.omm?.NORAD_CAT_ID||entry.title),norad_id:entry.omm?.NORAD_CAT_ID,international_id:entry.omm?.OBJECT_ID,inclination_degrees:entry.omm?.INCLINATION,lat,lng,altitude:Math.max(.015,geo.height/6371),altitude_km:Math.round(geo.height),time:date.toISOString(),epoch:epoch.toISOString(),source:entry.source||'CelesTrak · SGP4 estimate',url:entry.url||'https://celestrak.org/NORAD/elements/',layer:'space'});
   }catch{ /* A bad element record does not disable other satellites. */ }
  }
 }
 function render(){
+ $('#satellite-catalog').disabled=pending.has('space');
  propagateSatellites();
  records=Object.keys(config).filter(k=>enabled.has(k)&&k!=='space').flatMap(k=>state[k]?.items||[]).concat(satelliteRecords);
  const query=$('#search').value.trim().toLowerCase();
@@ -109,7 +112,9 @@ async function loadLayer(key){
  pending.add(key);render();
  const version=generation, cityScoped=['weather','air','traffic','aviation'].includes(key);
  try{
-  const response=await fetch('/api/layers/'+key+'?city='+encodeURIComponent($('#city').value),{signal:AbortSignal.timeout(60000)});
+  const route=key==='space'&&satelliteCatalog==='starlink'?'starlink':key;
+  const region=key==='aviation'&&flightArea?'&latitude='+flightArea.lat+'&longitude='+flightArea.lng:'';
+  const response=await fetch('/api/layers/'+route+'?city='+encodeURIComponent($('#city').value)+region,{signal:AbortSignal.timeout(60000)});
   if(!response.ok)throw Error('Source unavailable');
   const data=await response.json();
   if(!cityScoped||version===generation)state[key]=data;
@@ -131,11 +136,11 @@ function showCoverage(key){
 function openDrawer(){if(!$('#drawer').open)$('#drawer').showModal();}
 function showDetail(item){
  const source=state[item.layer]||{},url=safeLink(item.url);
- const details={...item.metrics,registration:item.registration,aircraft_type:item.aircraft_type,altitude_km:item.altitude_km,altitude_m:item.altitude_m,altitude_ft:item.altitude_ft,speed_kn:item.speed_kn,speed_ms:item.speed_ms,heading_degrees:item.heading,element_epoch:item.epoch,received_at:item.received_at};
+ const details={...item.metrics,registration:item.registration,aircraft_type:item.aircraft_type,norad_id:item.norad_id,international_id:item.international_id,inclination_degrees:item.inclination_degrees,destination:item.destination,reported_eta:item.reported_eta,imo:item.imo,voyage_reported_at:item.voyage_reported_at,altitude_km:item.altitude_km,altitude_m:item.altitude_m,altitude_ft:item.altitude_ft,speed_kn:item.speed_kn,speed_ms:item.speed_ms,heading_degrees:item.heading,element_epoch:item.epoch,received_at:item.received_at};
  $('#detail').innerHTML='<div class="eyebrow">'+config[item.layer][0].toUpperCase()+' / EVIDENCE</div><h2>'+esc(item.title)+'</h2><p class="muted">'+esc(source.coverage)+'</p><dl><dt>Latitude / longitude</dt><dd>'+Number(item.lat).toFixed(3)+' / '+Number(item.lng).toFixed(3)+'</dd><dt>Record time</dt><dd>'+esc(stamp(item.time))+'</dd><dt>Source</dt><dd>'+esc(item.source)+'</dd><dt>Fetched</dt><dd>'+esc(stamp(source.fetched_at))+'</dd>'+Object.entries(details).filter(([k,v])=>v!=null&&!['time','interval'].includes(k)).map(([k,v])=>'<dt>'+esc(k.replaceAll('_',' '))+'</dt><dd>'+esc(v)+' '+esc(item.units?.[k]||'')+'</dd>').join('')+'</dl><div class="note">Confidence: not independently assessed. Check source age, coverage, and official guidance.</div>'+(url?'<p><a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Open original source ↗</a></p>':'');
  if(markerPaths[item.layer]){const button=document.createElement('button');button.textContent='Follow incoming position updates';button.onclick=()=>{following={layer:item.layer,id:item.id};lastFollowPosition='';if(globe)globe.controls().autoRotate=false;$('#rotate').textContent='▶ Rotate';$('#rotate').setAttribute('aria-pressed','false');$('#unfollow').hidden=false;$('#drawer').close();render();};$('#detail').appendChild(button);}
  if(item.layer==='aviation')$('#detail').insertAdjacentHTML('beforeend','<p class="muted">Routes, airport departure/arrival times and aircraft photos are not supplied by this position feed.</p>');
- if(item.layer==='marine')$('#detail').insertAdjacentHTML('beforeend','<p class="muted">Destination and ETA are not included in the connected position-report feed.</p>');
+ if(item.layer==='marine')$('#detail').insertAdjacentHTML('beforeend','<p class="muted">Destination and ETA appear only when an AIS voyage message is received. Vessel-entered and unverified; AIS ETA omits the year. Missing values are not inferred.</p>');
  if(item.layer==='space')$('#detail').insertAdjacentHTML('beforeend','<p class="muted">Orbital position is calculated. Owner, launch date and operational status are not verified by this feed.</p>');
  openDrawer();
  if(globe)globe.pointOfView({lat:item.lat,lng:item.lng,altitude:item.layer==='traffic'?.01:1.7},700);
@@ -143,19 +148,25 @@ function showDetail(item){
 async function refresh(){ $('#refresh').disabled=true;await Promise.all([...new Set([...enabled,'weather','air'])].map(loadLayer));$('#refresh').disabled=false; }
 $('#event-filter').innerHTML+=Object.entries(config).map(([k,v])=>'<option value="'+k+'">'+v[0]+'</option>').join('');
 $('#rotate').insertAdjacentHTML('afterend','<button id="unfollow" hidden>Stop following</button>');
+$('#city').insertAdjacentHTML('afterend','<label for="satellite-catalog">Satellite catalog</label><select id="satellite-catalog"><option value="stations">Stations / ISS</option><option value="starlink">Starlink · up to 1,500 records</option></select>');
+$('#satellite-catalog').value='stations';
+$('#satellite-catalog').onchange=()=>{satelliteCatalog=$('#satellite-catalog').value;delete state.space;enabled.add('space');loadLayer('space');};
 $('.world-heading').insertAdjacentHTML('afterend','<div class="view-options"><button id="earth-style" aria-pressed="false">◐ Night imagery</button><button id="marker-size" aria-pressed="false">Small icons</button><button id="expand-view" aria-pressed="false">Expand globe</button></div><span class="imagery-credit">Earth texture · static imagery, not live satellite video</span>');
+$('.view-options').insertAdjacentHTML('beforeend','<button id="explore-flights">Explore flights here</button><button id="camera-ar">Phone sky view</button>');
+$('#explore-flights').onclick=()=>{if(globe){const p=globe.pointOfView();exploreFlights(p.lat,p.lng);}};
+$('#camera-ar').onclick=()=>{if(window.KAISky)window.KAISky.open(()=>records,exploreFlights);else{$('#detail').textContent='Camera module unavailable. Refresh the page to retry.';openDrawer();}};
 $('#earth-style').onclick=()=>{if(!globe)return;earthStyle=earthStyle==='day'?'night':'day';globe.globeImageUrl('https://cdn.jsdelivr.net/npm/three-globe@2.45.2/example/img/'+(earthStyle==='day'?'earth-blue-marble.jpg':'earth-night.jpg'));$('#earth-style').textContent=earthStyle==='day'?'◐ Night imagery':'◐ Day imagery';$('#earth-style').setAttribute('aria-pressed',earthStyle==='night');};
 $('#marker-size').onclick=()=>{const larger=document.body.classList.toggle('larger-icons');$('#marker-size').textContent=larger?'Larger icons':'Small icons';$('#marker-size').setAttribute('aria-pressed',larger);};
 $('#expand-view').onclick=()=>{const expanded=document.body.classList.toggle('expanded-globe');$('#expand-view').textContent=expanded?'Restore panels':'Expand globe';$('#expand-view').setAttribute('aria-pressed',expanded);};
 $('#unfollow').onclick=()=>{following=null;lastFollowPosition='';$('#unfollow').hidden=true;};
 $('#refresh').onclick=refresh;$('#search').oninput=render;$('#event-filter').onchange=render;
 $('#close').onclick=()=>$('#drawer').close();
-$('#city').onchange=async()=>{generation++;for(const key of ['weather','air','traffic','aviation'])delete state[key];$('#home').click();render();await refresh();};
+$('#city').onchange=async()=>{flightArea=null;$('#explore-flights').textContent='Explore flights here';generation++;for(const key of ['weather','air','traffic','aviation'])delete state[key];$('#home').click();render();await refresh();};
 $('#home').onclick=()=>{$('#unfollow').click();const [lat,lng]=coords[$('#city').value];if(globe)globe.pointOfView({lat,lng,altitude:1.9},800);};
 $('#rotate').onclick=()=>{if(!globe)return;$('#unfollow').click();const value=!globe.controls().autoRotate;globe.controls().autoRotate=value;$('#rotate').setAttribute('aria-pressed',value);$('#rotate').textContent=value?'Ⅱ Pause':'▶ Rotate';};
 for(const [id,factor] of [['zoom-in',.8],['zoom-out',1.25]])$('#'+id).onclick=()=>{if(globe)globe.pointOfView({altitude:Math.max(.3,Math.min(5,globe.pointOfView().altitude*factor))},300);};
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();$('#search').focus();}});
-initGlobe();if(!globe){for(const id of ['home','rotate','zoom-in','zoom-out','earth-style']){$('#'+id).disabled=true;$('#'+id).title='Requires a working 3D globe';}}refresh();
+initGlobe();$('#explore-flights').disabled=!globe;if(!globe){for(const id of ['home','rotate','zoom-in','zoom-out','earth-style']){$('#'+id).disabled=true;$('#'+id).title='Requires a working 3D globe';}}refresh();
 setInterval(()=>{if(!document.hidden&&enabled.has('marine'))loadLayer('marine');},15000);
 setInterval(()=>{if(!document.hidden&&enabled.has('space'))render();},10000);
 setInterval(()=>{if(!document.hidden)refresh();},120000);

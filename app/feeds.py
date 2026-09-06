@@ -7,6 +7,7 @@ import random
 import re
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import httpx
 import websockets
@@ -17,6 +18,8 @@ router = APIRouter()
 CITIES = {"Hyderabad": (17.385, 78.487), "Mumbai": (19.076, 72.878), "New Delhi": (28.614, 77.209), "Chennai": (13.083, 80.271), "Bengaluru": (12.972, 77.595), "Kolkata": (22.573, 88.364)}
 cache, locks = {}, {}
 vessels = {}
+voyages = {}
+request_counts = {}
 marine_status = "not_configured"
 marine_task = None
 marine_diagnostics = {"messages": 0, "positions": 0, "last_message_at": None}
@@ -49,10 +52,18 @@ def position(lat, lon):
 
 
 async def cached(name, url, ttl, params=None, raw=False):
-    async with locks.setdefault(name, asyncio.Lock()):
+    async with locks.setdefault("cache-stripe:" + str(hash(name) % 64), asyncio.Lock()):
         entry = cache.get(name)
         if entry and time.monotonic() < entry[0]:
             return entry[1]
+        day = datetime.now(timezone.utc).date().isoformat()
+        host = urlsplit(url).hostname
+        bucket = request_counts.get(host, (day, 0))
+        count = bucket[1] if bucket[0] == day else 0
+        limit = 300 if host == "opensky-network.org" else 2000
+        if count >= limit:
+            return {"status": "unavailable", "data": None, "reason": "Application daily request budget reached"}
+        request_counts[host] = (day, count + 1)
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.get(url, params=params)
@@ -73,10 +84,25 @@ async def cached(name, url, ttl, params=None, raw=False):
                 result["reason"] = "Provider returned invalid JSON"
             delay = max(300, ttl) if code in (401, 403, 429) or "celestrak.org" in url else 300
         cache[name] = (time.monotonic() + delay, result)
+        while len(cache) > 512:
+            cache.pop(next(iter(cache)))
         return result
 
 
 def ingest_vessel(message):
+    if message.get("MessageType") == "ShipStaticData":
+        report = message.get("Message", {}).get("ShipStaticData", {})
+        mmsi = str(message.get("MetaData", {}).get("MMSI") or report.get("UserID") or "")
+        if not mmsi or report.get("Valid") is False:
+            return
+        eta = report.get("Eta") or {}
+        parts = [eta.get(k) for k in ("Month", "Day", "Hour", "Minute")]
+        month_days = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
+        valid = all(isinstance(v, int) for v in parts) and 1 <= parts[0] <= 12 and 1 <= parts[1] <= month_days.get(parts[0], 0) and 0 <= parts[2] <= 23 and 0 <= parts[3] <= 59
+        voyages[mmsi] = {"destination": str(report.get("Destination") or "").strip(" @") or None, "reported_eta": f"{parts[0]:02d}-{parts[1]:02d} {parts[2]:02d}:{parts[3]:02d} UTC (AIS omits year)" if valid else None, "imo": report.get("ImoNumber") or None, "voyage_reported_at": now(), "stored": time.monotonic()}
+        while len(voyages) > 1500:
+            voyages.pop(next(iter(voyages)))
+        return
     if message.get("MessageType") not in AIS_TYPES:
         return
     meta = message.get("MetaData", {})
@@ -105,7 +131,7 @@ async def stream_marine():
         try:
             marine_status = "connecting"
             async with websockets.connect("wss://stream.aisstream.io/v0/stream", compression="deflate", max_size=1048576, ping_interval=20) as socket:
-                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[0, 60], [30, 106]], [[50, -2], [54, 6]], [[24, -83], [31, -78]]], "FilterMessageTypes": list(AIS_TYPES)}))
+                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[0, 60], [30, 106]], [[50, -2], [54, 6]], [[24, -83], [31, -78]]], "FilterMessageTypes": [*AIS_TYPES, "ShipStaticData"]}))
                 async for raw in socket:
                     message = json.loads(raw)
                     marine_diagnostics["messages"] += 1
@@ -140,17 +166,33 @@ async def stop():
 
 
 @router.get("/api/layers/{layer}")
-async def layer_data(layer: str, city: str = "Hyderabad"):
+async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None = None, longitude: float | None = None):
     if city not in CITIES:
         raise HTTPException(400, "Choose a supported city")
     lat, lon = CITIES[city]
+    if latitude is not None or longitude is not None:
+        if layer != "aviation" or not position(latitude, longitude):
+            raise HTTPException(400, "Map coordinates require valid latitude/longitude and the aviation layer")
+        lat, lon = round(latitude, 1), round(longitude, 1)
+        city = f"Map area {lat}, {lon}"
     if layer == "marine":
         expired = [key for key, item in vessels.items() if time.monotonic() - item["received"] > 600]
         for key in expired:
             del vessels[key]
+        for key in [k for k, v in voyages.items() if time.monotonic() - v["stored"] > 86400]:
+            del voyages[key]
+        for key, vessel in vessels.items():
+            for field in ("destination", "reported_eta", "imo", "voyage_reported_at"):
+                vessel[field] = voyages.get(key, {}).get(field)
         return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Indian Ocean/Singapore sector (0–30°N, 60–106°E), southern North Sea (50–54°N, 2°W–6°E), Florida coast (24–31°N, 83–78°W). AIS Class A and B. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
     if layer == "cams":
         return {"status": "links_only", "coverage": "Official viewing page; stream availability varies. No private cameras or synthetic camera markers.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
+    if layer == "starlink":
+        result = await cached("starlink-omm", "https://celestrak.org/NORAD/elements/gp.php", 7200, {"GROUP": "STARLINK", "FORMAT": "JSON"})
+        data = result.get("data")
+        items = [{"title": row.get("OBJECT_NAME", "Starlink"), "omm": row, "source": "CelesTrak · Starlink SGP4 estimate", "url": "https://celestrak.org/NORAD/elements/"} for row in data[:1500] if isinstance(row, dict) and row.get("NORAD_CAT_ID")] if isinstance(data, list) else []
+        status = result["status"] if items or result["status"] != "available" else "unavailable"
+        return {**result, "status": status, "data": None, "items": items, "coverage": "Starlink OMM catalog, capped at 1,500 records per response. Elements cached two hours; calculated positions, not telemetry. Owner/launch date/operational status not verified by OMM.", "reason": result.get("reason") if status != "available" else None}
     if layer == "earth":
         result = await cached("earth", "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson", 120)
         items = []
@@ -187,7 +229,7 @@ async def layer_data(layer: str, city: str = "Hyderabad"):
                 return {**fallback, "data": None, "items": [{"title": "ISS (ZARYA)", "tle1": tle["line1"], "tle2": tle["line2"], "source": "Where the ISS at? · SGP4 estimate", "url": "https://wheretheiss.at/w/developer"}], "coverage": "ISS-only fallback from Where the ISS at?; CelesTrak catalog unavailable. SGP4 calculated position, not live telemetry. Elements cached 2 hours."}
         return {**result, "data": None, "items": items, "status": result["status"] if items or result["status"] != "available" else "unavailable", "coverage": "Stations catalog only. SGP4 calculated positions, not live tracking. Elements cached 2 hours."}
     if layer == "aviation":
-        result = await cached("aviation:" + city, "https://opensky-network.org/api/states/all", 1800, {"lamin": lat - 1, "lamax": lat + 1, "lomin": lon - 1, "lomax": lon + 1})
+        result = await cached("aviation:" + city, "https://opensky-network.org/api/states/all", 1800, {"lamin": max(-90, lat - 1), "lamax": min(90, lat + 1), "lomin": max(-180, lon - 1), "lomax": min(180, lon + 1)})
         items = []
         for s in (result["data"] or {}).get("states") or []:
             if len(s) < 14 or not position(s[6], s[5]) or not s[3]:

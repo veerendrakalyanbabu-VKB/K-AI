@@ -33,6 +33,16 @@ def test_marine_normalizes_and_expires(monkeypatch):
     assert asyncio.run(feeds.layer_data("marine"))["items"] == []
 
 
+def test_ais_voyage_eta_is_attached_without_creating_a_fake_position():
+    feeds.vessels.clear(); feeds.voyages.clear()
+    feeds.ingest_vessel({"MessageType": "ShipStaticData", "MetaData": {"MMSI": 123456789}, "Message": {"ShipStaticData": {"Valid": True, "Destination": "INNSA", "Eta": {"Month": 9, "Day": 8, "Hour": 7, "Minute": 30}, "ImoNumber": 9876543}}})
+    assert not feeds.vessels
+    feeds.ingest_vessel({"MessageType": "PositionReport", "MetaData": {"MMSI": 123456789, "Latitude": 15, "Longitude": 70}, "Message": {"PositionReport": {"Valid": True}}})
+    item = asyncio.run(feeds.layer_data("marine"))["items"][0]
+    assert item["destination"] == "INNSA" and item["imo"] == 9876543
+    assert "AIS omits year" in item["reported_eta"]
+
+
 def test_key_not_configured_and_unknown_layer(monkeypatch):
     monkeypatch.delenv("TOMTOM_API_KEY", raising=False)
     client = TestClient(app)

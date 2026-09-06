@@ -18,4 +18,6 @@ jobs:
       - run: python -m pytest -q
       - run: python -m compileall -q app
       - run: node --check app/static/app.js
+      - run: node --check app/static/sky.js
+      - run: node -e "const {lookAngles}=require('./app/static/sky.js'); const a=lookAngles({lat:0,lng:0},{lat:0,lng:1,alt_m:0}); if(Math.abs(a.azimuth-90)>0.01) process.exit(1)"
       - run: node --test tests/controls.test.cjs

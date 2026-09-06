@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,13 +18,20 @@ APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
 load_dotenv(APP_DIR.parent / ".env")
 
-app = FastAPI(title="K AI World Pulse", version="0.1.0")
+app = FastAPI(title="K AI World Pulse", version="0.1.0", lifespan=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 from app import feeds
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await feeds.start()
+    try:
+        yield
+    finally:
+        await feeds.stop()
+
+app.router.lifespan_context = lifespan
 app.include_router(feeds.router)
-app.add_event_handler("startup", feeds.start)
-app.add_event_handler("shutdown", feeds.stop)
 
 # These feeds are deliberately key-free for a small prototype. They are not an
 # official alerting channel and must not be used to issue public warnings.

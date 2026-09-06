@@ -2,7 +2,7 @@
 
 ## Globe-first dashboard release
 
-The new interface adds selectable earthquake, flight, marine, satellite, weather, air-quality, road-traffic and natural-event layers; searchable evidence; source coverage cards; a detail drawer; and a separate local-conditions panel. Camera support is currently official viewing links only.
+The new interface adds selectable earthquake, flight, marine, satellite, weather, air-quality, road-traffic and natural-event layers; searchable evidence; source coverage cards; a detail drawer; and a separate local-conditions panel. Camera support includes an opt-in phone sky view for approximate local bearings; official camera links remain available. Flights, vessels, and satellites remain bounded public snapshots with source and freshness labels.
 
 **Read [actual coverage and operating limits](docs/DATA-COVERAGE.md) before presenting this as live intelligence.** Flights are quota-cached regional snapshots, satellites are calculated estimates, traffic is a single road sample, and marine reception covers an Indian Ocean sector. No fabricated counts or paid UI package is used.
 

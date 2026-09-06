@@ -4,7 +4,7 @@
 
 Small 18px SVG symbols now have a larger interaction target and a hover highlight; the size toggle enables 24px symbols. The globe adds a thinner atmosphere, terrain bump shading, damped controls, day/night static imagery, and an expanded view. Night imagery is an artistic basemap selection, not a real-time solar terminator or live Earth video. Reset/rotate correctly exit follow mode.
 
-Aircraft registration and type codes appear when supplied. Departure, destination, ETA, photos, satellite owner/launch/status, phone AR, and complete worldwide movement coverage are **not implemented**. These require separately scoped data and device integrations. Do not present position snapshots as full FlightRadar24/MarineTraffic parity.
+Aircraft registration and type codes appear when supplied. The map can request a bounded flight snapshot around the current globe view. AIS voyage messages enrich vessels with their entered destination, ETA (month/day only), and IMO when available; those values are unverified vessel reports. Starlink OMM selection is available when CelesTrak permits the catalog request. The opt-in phone sky view uses local camera/compass sensors and approximate WGS84 bearings. Airport schedules, aircraft photos, satellite owner/launch/status metadata, and complete worldwide movement coverage still require separate licensed or authorised feeds. Do not present position snapshots as FlightRadar24/MarineTraffic parity.
 
 When Open-Meteo cannot serve weather, the server tries MET Norway Locationforecast with the application URL as its identifying User-Agent. Cached responses respect Expires and use If-Modified-Since. The closest forecast within one hour is returned with MET Norway attribution and a CC BY 4.0 link. Wind is converted from m/s to km/h; rainfall is forecast for the next hour. No rainfall value is inferred when missing. The cache lasts at least 30 minutes. Forecasts are not official alerts.
 
@@ -17,6 +17,10 @@ Live inspection on September 6 confirmed the Render marine bridge receiving repo
 An additional independent [adsb.fi public regional endpoint](https://github.com/adsbfi/opendata) is now tried when the other flight providers cannot return records. This source permits **personal, non-commercial use only**. Keep its in-app source link; obtain appropriate permission or remove this adapter before commercial/government operational use. It uses the public v3 radius endpoint, never the feeder-only global snapshot. A shared lock spaces calls more than one second apart; results cache for three minutes. No alternate IP, proxy or authentication bypass is used.
 
 Icon budgets now reserve 50 for satellites, 200 for aircraft and 250 for vessels, avoiding vessel counts hiding the satellite icon. Additional records remain points. Click a record and choose **Follow incoming position updates** to keep the camera on its reported/estimated location as new snapshots arrive. No aircraft or vessel movement is invented between snapshots. Stop following restores manual navigation. Provider timestamps are retained, and AIS timestamps are normalized to ISO 8601 for browsers.
+
+## Map-area flights, voyages, catalog and phone view
+
+Use **Explore flights here** after rotating the globe to request a ±1° OpenSky area (with public regional fallbacks). This intentionally does not claim worldwide aircraft completeness. The Starlink selector requests the CelesTrak `GROUP=STARLINK` OMM catalog and marks blocked or empty responses as unavailable rather than substituting the ISS. Phone sky view asks for camera, motion, and approximate location only after the user taps it; it shows a bearing list/overlay for loaded aircraft, vessels, and satellites and closes all streams when dismissed. It is an orientation aid, not calibrated augmented reality.
 
 ## Resilience and icon update
 
@@ -36,13 +40,14 @@ The dashboard is a working, limited-coverage public-data prototype, not a compre
 | --- | --- | --- |
 | Earthquakes | USGS past-hour point events | Shared 2-minute cache; events are reported, not independently verified |
 | Global signals | NASA EONET open event geometries | 15-minute cache, up to 50; not live sensors |
-| Satellites | CelesTrak stations TLE, browser SGP4 | Elements cached 2 hours; estimated positions every 10 seconds; elements older than 14 days omitted |
-| Flights | OpenSky anonymous state vectors near selected city | ±1° region, shared 30-minute cache; coverage, quotas and licensing apply, not continuous tracking |
-| Marine | Server-side AISStream WebSocket, browser polls bounded snapshot | 0–30°N / 60–100°E, 1,500 vessels maximum, reports expire after 10 minutes; receiver gaps expected |
+| Satellites | CelesTrak stations TLE or opt-in Starlink OMM, browser SGP4 | Elements/catalog cached 2 hours; estimated positions every 10 seconds; elements older than 14 days omitted; owner/launch/status are not in this feed |
+| Flights | OpenSky anonymous state vectors near selected city or user-selected globe area | ±1° region, shared 30-minute cache; public regional fallbacks; coverage, quotas and licensing apply, not continuous tracking |
+| Marine | Server-side AISStream WebSocket, browser polls bounded snapshot | Three receiver sectors, 1,500 vessels maximum, reports expire after 10 minutes; destination/ETA/IMO only when AIS static data arrives; receiver gaps expected |
 | Road traffic | TomTom flow segment near city center | Shared 15-minute cache, one segment, not city-wide congestion |
 | Weather | Open-Meteo current model estimate | Six selectable Indian cities; 15-minute cache |
 | Air | Open-Meteo / CAMS | US AQI and particulate model estimates, not Indian AQI or station readings |
 | Cameras | NASA official public viewing page | Links only, not embedded globe camera streams; availability varies |
+| Phone sky view | Browser camera + motion + approximate geolocation after explicit tap | Local bearing aid for loaded records; sensor accuracy varies; no uploaded camera stream; not calibrated AR |
 
 ## Operations
 
