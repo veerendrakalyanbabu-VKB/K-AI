@@ -1,5 +1,15 @@
 # K AI World Pulse
 
+## Globe-first dashboard release
+
+The new interface adds selectable earthquake, flight, marine, satellite, weather, air-quality, road-traffic and natural-event layers; searchable evidence; source coverage cards; a detail drawer; and a separate local-conditions panel. Camera support is currently official viewing links only.
+
+**Read [actual coverage and operating limits](docs/DATA-COVERAGE.md) before presenting this as live intelligence.** Flights are quota-cached regional snapshots, satellites are calculated estimates, traffic is a single road sample, and marine reception covers an Indian Ocean sector. No fabricated counts or paid UI package is used.
+
+Existing Render configuration is retained. Set the optional `AISSTREAM_API_KEY` and `TOMTOM_API_KEY` server environment variables, then deploy the latest commit. Keep one server worker. Never put keys into browser code. Free Render sleep interrupts marine streaming.
+
+Run `python -m pytest -q` and `node --check app/static/app.js` to verify the release. The following original MVP notes remain for context.
+
 **A zero-cost-first, source-grounded World State Engine prototype.**
 
 K AI World Pulse makes live public signals understandable through an interactive global event map and a location incident brief. It is decision support only; it is **not** an official warning system.

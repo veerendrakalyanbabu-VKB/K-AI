@@ -11,5 +11,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - run: pip install -r requirements.txt
-      - run: pytest -q
+      - run: python -m pytest -q
+      - run: python -m compileall -q app
+      - run: node --check app/static/app.js

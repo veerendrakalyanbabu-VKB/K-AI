@@ -18,6 +18,11 @@ load_dotenv(APP_DIR.parent / ".env")
 
 app = FastAPI(title="K AI World Pulse", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+from app import feeds
+
+app.include_router(feeds.router)
+app.add_event_handler("startup", feeds.start)
+app.add_event_handler("shutdown", feeds.stop)
 
 # These feeds are deliberately key-free for a small prototype. They are not an
 # official alerting channel and must not be used to issue public warnings.
@@ -39,9 +44,11 @@ CITY_COORDINATES = {
 
 
 async def fetch_json(client: httpx.AsyncClient, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = await client.get(url, params=params)
-    response.raise_for_status()
-    return response.json()
+    ttl = 7200 if "celestrak.org" in url else 900
+    result = await feeds.cached("legacy:" + url + str(params), url, ttl, params)
+    if result["status"] != "available":
+        raise httpx.RequestError("Source unavailable or stale")
+    return result["data"]
 
 
 def quake_feature(feature: dict[str, Any]) -> dict[str, Any]:
@@ -153,7 +160,9 @@ async def get_traffic(city: str) -> dict[str, Any]:
 
 
 def risk_label(weather: dict[str, Any], quakes: list[dict[str, Any]]) -> tuple[str, list[str]]:
-    current = weather["current"]
+    current = weather.get("current", {})
+    if not all(isinstance(current.get(k), (int, float)) for k in ("temperature_2m", "wind_speed_10m", "precipitation")):
+        return "unknown", ["Local weather data incomplete; no all-clear can be inferred."]
     risks: list[str] = []
     temperature = current.get("temperature_2m")
     wind = current.get("wind_speed_10m")
