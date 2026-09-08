@@ -18,3 +18,7 @@
 .entity-marker{width:26px;height:26px;padding:5px;border-radius:50%;background:#06111aaa;filter:drop-shadow(0 1px 2px #000);border:1px solid #ffffff18}
 .entity-marker svg{width:16px;height:16px;fill:none}
 .entity-marker:hover,.entity-marker:focus-visible{background:#0c2338;border-color:currentColor;z-index:10}
+
+/* Transport glyphs retain screen size while course rotates. */
+.entity-marker svg{stroke-linecap:round;stroke-linejoin:round}.entity-marker:has(svg){background:#04121ac9}.entity-marker svg{transition:transform .2s ease}
+@media(prefers-reduced-motion:reduce){.entity-marker svg{transition:none}}

@@ -63,9 +63,10 @@ async def cached(name, url, ttl, params=None, raw=False):
         bucket = request_counts.get(host, (day, 0))
         count = bucket[1] if bucket[0] == day else 0
         limit = 300 if host == "opensky-network.org" else 2000
-        if count >= limit:
+        cost = 4 if host == "opensky-network.org" else 1
+        if count + cost > limit:
             return {"status": "unavailable", "data": None, "reason": "Application daily request budget reached"}
-        request_counts[host] = (day, count + 1)
+        request_counts[host] = (day, count + cost)
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.get(url, params=params)
@@ -118,7 +119,7 @@ def ingest_vessel(message):
     if not mmsi:
         return
     marine_diagnostics["positions"] += 1
-    if len(vessels) >= 1500 and mmsi not in vessels:
+    if len(vessels) >= 6000 and mmsi not in vessels:
         vessels.pop(next(iter(vessels)))
     vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "time": ais_time(meta.get("time_utc")), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
 
@@ -133,7 +134,7 @@ async def stream_marine():
         try:
             marine_status = "connecting"
             async with websockets.connect("wss://stream.aisstream.io/v0/stream", compression="deflate", max_size=1048576, ping_interval=20) as socket:
-                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[0, 60], [30, 106]], [[50, -2], [54, 6]], [[24, -83], [31, -78]]], "FilterMessageTypes": [*AIS_TYPES, "ShipStaticData"]}))
+                await socket.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[-90, -180], [90, 180]]], "FilterMessageTypes": [*AIS_TYPES, "ShipStaticData"]}))
                 async for raw in socket:
                     message = json.loads(raw)
                     marine_diagnostics["messages"] += 1
@@ -194,15 +195,16 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
         for key, vessel in vessels.items():
             for field in ("destination", "reported_eta", "imo", "voyage_reported_at"):
                 vessel[field] = voyages.get(key, {}).get(field)
-        return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Indian Ocean/Singapore sector (0–30°N, 60–106°E), southern North Sea (50–54°N, 2°W–6°E), Florida coast (24–31°N, 83–78°W). AIS Class A and B. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
+        return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Worldwide AIS subscription, up to 6,000 received vessels retained. AIS Class A and B; receiver coverage is incomplete. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
     if layer == "cams":
         return {"status": "links_only", "coverage": "Official viewing page; stream availability varies. No private cameras or synthetic camera markers.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
-    if layer == "starlink":
-        result = await cached("starlink-omm", "https://celestrak.org/NORAD/elements/gp.php", 7200, {"GROUP": "STARLINK", "FORMAT": "JSON"})
+    if layer in ("starlink", "active"):
+        group = "ACTIVE" if layer == "active" else "STARLINK"
+        result = await cached(group + "-omm", "https://celestrak.org/NORAD/elements/gp.php", 7200, {"GROUP": group, "FORMAT": "JSON"})
         data = result.get("data")
-        items = [{"title": row.get("OBJECT_NAME", "Starlink"), "omm": row, "source": "CelesTrak · Starlink SGP4 estimate", "url": "https://celestrak.org/NORAD/elements/"} for row in data[:1500] if isinstance(row, dict) and row.get("NORAD_CAT_ID")] if isinstance(data, list) else []
+        items = [{"title": row.get("OBJECT_NAME", "Starlink"), "omm": row, "source": "CelesTrak · " + group + " SGP4 estimate", "url": "https://celestrak.org/NORAD/elements/"} for row in data[:6000] if isinstance(row, dict) and row.get("NORAD_CAT_ID")] if isinstance(data, list) else []
         status = result["status"] if items or result["status"] != "available" else "unavailable"
-        return {**result, "status": status, "data": None, "items": items, "coverage": "Starlink OMM catalog, capped at 1,500 records per response. Elements cached two hours; calculated positions, not telemetry. Owner/launch date/operational status not verified by OMM.", "reason": result.get("reason") if status != "available" else None}
+        return {**result, "status": status, "data": None, "items": items, "coverage": group + " OMM catalog, capped at 6,000 records per response. Elements cached two hours; calculated positions, not telemetry. Owner/launch date/operational status not verified by OMM.", "reason": result.get("reason") if status != "available" else None}
     if layer == "earth":
         result = await cached("earth", "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson", 120)
         items = []
@@ -238,6 +240,17 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
             if str(tle.get("line1", "")).startswith("1 ") and str(tle.get("line2", "")).startswith("2 "):
                 return {**fallback, "data": None, "items": [{"title": "ISS (ZARYA)", "tle1": tle["line1"], "tle2": tle["line2"], "source": "Where the ISS at? · SGP4 estimate", "url": "https://wheretheiss.at/w/developer"}], "coverage": "ISS-only fallback from Where the ISS at?; CelesTrak catalog unavailable. SGP4 calculated position, not live telemetry. Elements cached 2 hours."}
         return {**result, "data": None, "items": items, "status": result["status"] if items or result["status"] != "available" else "unavailable", "coverage": "Stations catalog only. SGP4 calculated positions, not live tracking. Elements cached 2 hours."}
+    if layer == "aviation_global":
+        result = await cached("global-flights", "https://opensky-network.org/api/states/all", 3600)
+        payload = result.get("data") or {}
+        items = []
+        for s in payload.get("states") or []:
+            if not isinstance(s, list) or len(s) < 14 or not position(s[6], s[5]) or not isinstance(s[3], (int, float)):
+                continue
+            if time.time() - s[3] > 7200 or s[3] > time.time() + 60:
+                continue
+            items.append({"id": s[0], "title": (s[1] or s[0]).strip(), "lat": s[6], "lng": s[5], "time": datetime.fromtimestamp(s[3], timezone.utc).isoformat(), "altitude_m": s[13] if s[13] is not None else s[7], "speed_ms": s[9], "heading": s[10], "source": "OpenSky · global snapshot", "url": "https://opensky-network.org/", "layer": "aviation"})
+        return {**result, "data": None, "items": items[:12000], "coverage": "Worldwide OpenSky receiver network; up to 12,000 positioned aircraft. Shared hourly snapshot to conserve anonymous quota. Not continuous tracking. If access fails, use Explore flights here for regional sources."}
     if layer == "aviation":
         result = await cached("aviation:" + city, "https://opensky-network.org/api/states/all", 1800, {"lamin": max(-90, lat - 1), "lamax": min(90, lat + 1), "lomin": max(-180, lon - 1), "lomax": min(180, lon + 1)})
         items = []
