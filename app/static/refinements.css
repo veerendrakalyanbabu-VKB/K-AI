@@ -13,3 +13,8 @@
 .watch svg{width:17px;height:17px;vertical-align:middle}.event{transition:border-color .15s,background .15s}.event:hover{background:#1c2c3e}
 @media(max-width:680px){.view-options{left:20px;top:127px}.imagery-credit{font-size:9px;bottom:121px}.expanded-globe .world{min-height:590px}.entity-marker{width:32px;height:32px;padding:7px}}
 @media(prefers-reduced-motion:reduce){.entity-marker,.event{transition:none}}
+
+/* Flat, legible map symbols replace extruded dot columns. */
+.entity-marker{width:26px;height:26px;padding:5px;border-radius:50%;background:#06111aaa;filter:drop-shadow(0 1px 2px #000);border:1px solid #ffffff18}
+.entity-marker svg{width:16px;height:16px;fill:none}
+.entity-marker:hover,.entity-marker:focus-visible{background:#0c2338;border-color:currentColor;z-index:10}
