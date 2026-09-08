@@ -1,5 +1,6 @@
 """Bounded, cached public feeds. Credentials never leave this process."""
 import asyncio
+import xml.etree.ElementTree as ET
 import json
 import math
 import os
@@ -13,6 +14,7 @@ import httpx
 import websockets
 from fastapi import APIRouter, HTTPException
 from app.weather import forecast
+from app.osint import normalize_gdacs
 
 router = APIRouter()
 CITIES = {"Hyderabad": (17.385, 78.487), "Mumbai": (19.076, 72.878), "New Delhi": (28.614, 77.209), "Chennai": (13.083, 80.271), "Bengaluru": (12.972, 77.595), "Kolkata": (22.573, 88.364)}
@@ -175,6 +177,14 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
             raise HTTPException(400, "Map coordinates require valid latitude/longitude and the aviation layer")
         lat, lon = round(latitude, 1), round(longitude, 1)
         city = f"Map area {lat}, {lon}"
+    if layer == "osint":
+        result = await cached("gdacs-rss", "https://www.gdacs.org/xml/rss.xml", 900, raw=True)
+        try:
+            items = normalize_gdacs(result.get("data"))
+        except (ValueError, TypeError, ET.ParseError):
+            # Malformed upstream XML is not an empty, healthy feed.
+            return {"status": "unavailable", "items": [], "coverage": "GDACS feed unavailable or invalid. No disaster assessment inferred.", "reason": result.get("reason", "Invalid GeoRSS response")}
+        return {**result, "data": None, "items": items, "coverage": "GDACS public disaster reports; feed window and coverage vary. Cached 15 minutes. Alert levels are source assessments, not a local-city warning.", "links": [{"title": "GDACS source and feed documentation", "url": "https://www.gdacs.org/feed_reference.aspx"}]}
     if layer == "marine":
         expired = [key for key, item in vessels.items() if time.monotonic() - item["received"] > 600]
         for key in expired:

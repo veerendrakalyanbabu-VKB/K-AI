@@ -3,11 +3,11 @@ const $ = s => document.querySelector(s);
 const esc = x => String(x ?? '—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const stamp = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Time not supplied';
 const config = {
- earth:['Earthquakes','◉','#fa927b'], aviation:['Flights','✈','#78baff'], marine:['Marine','◈','#68d9c4'],
+ osint:['Disaster OSINT','◇','#ffb57f'], earth:['Earthquakes','◉','#fa927b'], aviation:['Flights','✈','#78baff'], marine:['Marine','◈','#68d9c4'],
  space:['Satellites','◎','#c7a0ff'], weather:['Weather','☀','#edb75e'], air:['Air quality','≋','#a4d782'],
  traffic:['Road traffic','⇄','#f7cc76'], signals:['Global signals','⌁','#f299c3'], cams:['Live cameras','▣','#9faecc']
 };
-const state = {}, enabled = new Set(['earth','signals','space','weather','aviation','marine','traffic']), pending = new Set();
+const state = {}, enabled = new Set(['osint','earth','signals','space','weather','aviation','marine','traffic']), pending = new Set();
 let globe, generation=0, records=[], satelliteRecords=[];
 let following=null, lastFollowPosition='';
 let earthStyle='day';
