@@ -102,7 +102,7 @@ def ingest_vessel(message):
         parts = [eta.get(k) for k in ("Month", "Day", "Hour", "Minute")]
         month_days = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
         valid = all(isinstance(v, int) for v in parts) and 1 <= parts[0] <= 12 and 1 <= parts[1] <= month_days.get(parts[0], 0) and 0 <= parts[2] <= 23 and 0 <= parts[3] <= 59
-        voyages[mmsi] = {"destination": str(report.get("Destination") or "").strip(" @") or None, "reported_eta": f"{parts[0]:02d}-{parts[1]:02d} {parts[2]:02d}:{parts[3]:02d} UTC (AIS omits year)" if valid else None, "imo": report.get("ImoNumber") or None, "voyage_reported_at": now(), "stored": time.monotonic()}
+        voyages[mmsi] = {"destination": str(report.get("Destination") or "").strip(" @") or None, "reported_eta": f"{parts[0]:02d}-{parts[1]:02d} {parts[2]:02d}:{parts[3]:02d} UTC (AIS omits year)" if valid else None, "imo": report.get("ImoNumber") or None, "callsign": str(report.get("CallSign") or "").strip() or None, "ship_type": report.get("Type") or None, "dimensions": report.get("Dimension") or None, "voyage_reported_at": now(), "stored": time.monotonic()}
         while len(voyages) > 1500:
             voyages.pop(next(iter(voyages)))
         return
@@ -121,7 +121,7 @@ def ingest_vessel(message):
     marine_diagnostics["positions"] += 1
     if len(vessels) >= 6000 and mmsi not in vessels:
         vessels.pop(next(iter(vessels)))
-    vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "time": ais_time(meta.get("time_utc")), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
+    vessels[mmsi] = {"id": mmsi, "title": str(meta.get("ShipName") or mmsi).strip(), "lat": lat, "lng": lon, "speed_kn": report.get("Sog"), "heading": report.get("Cog"), "nav_status": report.get("NavigationalStatus"), "time": ais_time(meta.get("time_utc")), "received_at": now(), "received": time.monotonic(), "source": "AISStream", "url": "https://aisstream.io/", "layer": "marine"}
 
 
 async def stream_marine():
@@ -193,7 +193,7 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
         for key in [k for k, v in voyages.items() if time.monotonic() - v["stored"] > 86400]:
             del voyages[key]
         for key, vessel in vessels.items():
-            for field in ("destination", "reported_eta", "imo", "voyage_reported_at"):
+            for field in ("destination", "reported_eta", "imo", "callsign", "ship_type", "dimensions", "voyage_reported_at"):
                 vessel[field] = voyages.get(key, {}).get(field)
         return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Worldwide AIS subscription, up to 6,000 received vessels retained. AIS Class A and B; receiver coverage is incomplete. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
     if layer == "cams":
@@ -305,5 +305,6 @@ def normalize_adsb(data, source="adsb.lol contributors · ODbL 1.0", source_url=
         age = plane.get("seen_pos")
         if not position(lat, lon) or not isinstance(age, (int, float)) or not 0 <= age <= 120:
             continue
-        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "registration": plane.get("r"), "aircraft_type": plane.get("t"), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
+        items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "icao24": plane.get("hex"), "callsign": str(plane.get("flight") or "").strip() or None, "registration": plane.get("r"), "aircraft_type": plane.get("t"), "squawk": plane.get("squawk"), "vertical_rate_fpm": plane.get("baro_rate"), "on_ground": plane.get("ground"), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
     return items
+
