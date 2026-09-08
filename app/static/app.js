@@ -13,7 +13,7 @@ let following=null, lastFollowPosition='';
 let earthStyle='day';
 let flightArea=null, satelliteCatalog='visual';
 function exploreFlights(lat,lng){if(!Number.isFinite(lat)||!Number.isFinite(lng))return;flightArea={lat:Math.max(-90,Math.min(90,lat)),lng:((lng+540)%360)-180};generation++;delete state.aviation;enabled.add('aviation');$('#explore-flights').textContent='Flights: '+flightArea.lat.toFixed(1)+', '+flightArea.lng.toFixed(1);loadLayer('aviation');}
-const markerPaths={aviation:'M12 2L14 9L22 14V16L14 13L14 19L17 21V23L12 21L7 23V21L10 19V13L2 16V14L10 9Z',marine:'M5 10V5H10V2H14V5H19V10L22 12L19 20H5L2 12ZM7 7V10L12 8L17 10V7ZM4 22L8 21L12 22L16 21L20 22',space:'M9 8H15V16H9ZM1 6H6V18H1ZM18 6H23V18H18ZM6 11H9M15 11H18M12 3V8M12 16V21'};
+const markerPaths={aviation:'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-3 2v2l4.5-1.5L16 23v-2l-3-2v-5.5Z',marine:'M3 17h18l-2 4H5zM6 17V7h12v10M9 7V4h6v3M4 21c2 2 4 2 6 0 2 2 4 2 6 0 2 2 4 2 6 0',space:'M8 7h8v10H8zM2 5h5v14H2zM17 5h5v14h-5zM8 12H7m10 0h-1M12 7V3m0 18v-4'};
 function markerSVG(layer){return '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="'+markerPaths[layer]+'" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';}
 Object.assign(markerPaths,{earth:'M2 12H6L9 4L13 20L16 12H22',signals:'M13 2C15 8 21 10 19 16C17 23 5 23 4 15C3 11 7 7 9 5C8 11 12 12 13 2Z',osint:'M12 3L23 21H1ZM12 9V14M12 17V18',weather:'M12 5V1M12 23V19M5 12H1M23 12H19M5 5L3 3M19 19L21 21M5 19L3 21M19 5L21 3M16 12A4 4 0 1 0 8 12A4 4 0 1 0 16 12',air:'M2 8H17Q23 8 21 3M2 12H20M2 16H15Q21 16 19 21',traffic:'M4 3V21M20 3V21M12 3V7M12 10V14M12 17V21'});
 for(const key of Object.keys(markerPaths))config[key][1]=markerSVG(key);
@@ -72,7 +72,7 @@ function render(){
  records=Object.keys(config).filter(k=>enabled.has(k)&&k!=='space').flatMap(k=>state[k]?.items||[]).concat(satelliteRecords);
  const query=$('#search').value.trim().toLowerCase();
  records=records.filter(x=>String(x.title).toLowerCase().includes(query));
- if(globe){const budgets={space:180,aviation:350,marine:450,earth:150,signals:100,osint:150,weather:10,air:10,traffic:10};const icons=Object.keys(budgets).flatMap(layer=>spatialMarkers(records.filter(x=>x.layer===layer),budgets[layer]));globe.htmlElementsData(icons);globe.pointsData([]);globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);$('#visible-count').title=icons.length+' symbols displayed; '+records.length+' searchable records. Dense layers have display limits.';}
+ if(globe){const budgets={space:220,aviation:400,marine:450,earth:150,signals:100,osint:150,weather:10,air:10,traffic:10};const icons=Object.keys(budgets).flatMap(layer=>spatialMarkers(records.filter(x=>x.layer===layer),budgets[layer]));globe.htmlElementsData(icons);globe.pointsData([]);globe.pathsData(enabled.has('traffic')?(state.traffic?.items||[]).filter(x=>x.path?.length>1):[]);$('#visible-count').title=icons.length+' symbols displayed; '+records.length+' searchable records. Dense layers have display limits.';}
  if(following&&globe){const target=records.find(x=>x.layer===following.layer&&x.id===following.id);if(target){const position=target.lat+','+target.lng;if(position!==lastFollowPosition){globe.pointOfView({lat:target.lat,lng:target.lng,altitude:target.layer==='space'?1.6:.7},500);lastFollowPosition=position;}$('#unfollow').textContent='Stop following';$('#unfollow').title=target.title+' · '+stamp(target.time);}else{$('#unfollow').textContent='Target unavailable';}}
  $('#visible-count').textContent=records.length;
  $('#layers').innerHTML=Object.entries(config).map(([key,[name,icon,color]])=>'<button class="layer" data-layer="'+key+'" aria-pressed="'+enabled.has(key)+'" style="--color:'+color+'"><span class="icon">'+icon+'</span><span class="copy">'+name+'<small>'+esc(pending.has(key)?'Loading…':state[key]?.status||'Select to load')+'</small></span><span class="count">'+(key==='space'?satelliteRecords.length:(state[key]?.items?.length??'—'))+'</span></button>').join('');
@@ -196,4 +196,5 @@ initGlobe();$('#explore-flights').disabled=!globe;$('#map-detail').disabled=!glo
 setInterval(()=>{if(!document.hidden&&enabled.has('marine'))loadLayer('marine');},15000);
 setInterval(()=>{if(!document.hidden&&enabled.has('space'))render();},10000);
 setInterval(()=>{if(!document.hidden)refresh();},120000);
+
 

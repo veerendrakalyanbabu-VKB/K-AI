@@ -92,6 +92,17 @@ async def cached(name, url, ttl, params=None, raw=False):
         return result
 
 
+async def cached_any(name, urls, ttl, params=None):
+    """Try equivalent public mirrors without hiding provider failure."""
+    last = {"status": "unavailable", "data": None, "reason": "No catalog mirror responded"}
+    for url in urls:
+        result = await cached(name + ":" + urlsplit(url).hostname, url, ttl, params)
+        if result.get("status") == "available" and isinstance(result.get("data"), list) and result["data"]:
+            return result
+        last = result
+    return last
+
+
 def ingest_vessel(message):
     if message.get("MessageType") == "ShipStaticData":
         report = message.get("Message", {}).get("ShipStaticData", {})
@@ -200,7 +211,7 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
         return {"status": "player_available", "coverage": "NASA ISS camera player available; broadcast status is not monitored. Night-side darkness and outages are possible.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
     if layer in ("starlink", "active", "visual"):
         group = {"active": "ACTIVE", "starlink": "STARLINK", "visual": "visual"}[layer]
-        result = await cached(group + "-omm", "https://celestrak.org/NORAD/elements/gp.php", 7200, {"GROUP": group, "FORMAT": "JSON"})
+        result = await cached_any(group + "-omm", ["https://celestrak.org/NORAD/elements/gp.php", "https://celestrak.com/NORAD/elements/gp.php"], 7200, {"GROUP": group, "FORMAT": "JSON"})
         data = result.get("data")
         items = [{"title": row.get("OBJECT_NAME", "Starlink"), "omm": row, "source": "CelesTrak · " + group + " SGP4 estimate", "url": "https://celestrak.org/NORAD/elements/"} for row in data[:6000] if isinstance(row, dict) and row.get("NORAD_CAT_ID")] if isinstance(data, list) else []
         status = result["status"] if items or result["status"] != "available" else "unavailable"
@@ -307,4 +318,5 @@ def normalize_adsb(data, source="adsb.lol contributors · ODbL 1.0", source_url=
             continue
         items.append({"id": plane.get("hex"), "title": str(plane.get("flight") or plane.get("r") or plane.get("hex") or "Aircraft").strip(), "icao24": plane.get("hex"), "callsign": str(plane.get("flight") or "").strip() or None, "registration": plane.get("r"), "aircraft_type": plane.get("t"), "squawk": plane.get("squawk"), "vertical_rate_fpm": plane.get("baro_rate"), "on_ground": plane.get("ground"), "lat": lat, "lng": lon, "heading": plane.get("track"), "altitude_ft": plane.get("alt_baro"), "speed_kn": plane.get("gs"), "time": datetime.fromtimestamp(timestamp - age, timezone.utc).isoformat(), "source": source, "url": source_url, "layer": "aviation"})
     return items
+
 
