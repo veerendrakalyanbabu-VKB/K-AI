@@ -7,7 +7,7 @@ function boot(webgl=true) {
   const nodes=new Map(), calls=[], classes=new Set();
   function node(key='') {
     if(nodes.has(key))return nodes.get(key);
-    const element={value:key==='#city'?'Hyderabad':key==='#event-filter'?'all':'',innerHTML:'',textContent:'',style:{},hidden:false,disabled:false,clientWidth:800,clientHeight:600,children:[],attributes:{},querySelectorAll:()=>[],setAttribute(k,v){this.attributes[k]=String(v);},insertAdjacentHTML(){},appendChild(x){this.children.push(x);},click(){this.onclick?.();},showModal(){this.open=true;},close(){this.open=false;},focus(){}};
+    const element={value:key==='#city'?'Hyderabad':key==='#event-filter'?'all':'',innerHTML:'',textContent:'',style:{},hidden:false,disabled:false,clientWidth:800,clientHeight:600,children:[],attributes:{},querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},setAttribute(k,v){this.attributes[k]=String(v);},insertAdjacentHTML(){},appendChild(x){this.children.push(x);},click(){this.onclick?.();},showModal(){this.open=true;},close(){this.open=false;},focus(){}};
     nodes.set(key,element);return element;
   }
   const controls={autoRotate:false}, view={lat:20,lng:70,altitude:2.25};
@@ -31,4 +31,22 @@ test('no WebGL disables controls instead of leaving inert buttons',()=>{
 test('detail text is escaped and follow button exists for an aircraft',()=>{
  const b=boot();vm.runInContext("showDetail({title:'<script>bad</script>',id:'abc',layer:'aviation',lat:17,lng:78,source:'test',time:null})",b.context);
  assert.ok(b.node('#detail').innerHTML.includes('&lt;script&gt;'));assert.equal(b.node('#detail').children[0].textContent,'Follow incoming position updates');
+});
+
+test('map labels enable tiles, credit the source, and stop rotation',()=>{
+ const b=boot();b.node('#rotate').click();b.node('#map-detail').click();
+ const tile=b.calls.find(x=>x[0]==='globeTileEngineUrl');
+ assert.equal(tile[1](3,4,5),'https://tile.openstreetmap.org/5/3/4.png');
+ assert.equal(b.node('#map-attribution').hidden,false);
+ assert.equal(b.controls.autoRotate,false);
+ assert.equal(b.node('#rotate').disabled,true);
+ b.node('#map-detail').click();
+ assert.equal(b.calls.filter(x=>x[0]==='globeTileEngineUrl').at(-1)[1],null);
+ assert.equal(b.node('#map-attribution').hidden,true);
+ assert.equal(b.node('#rotate').disabled,false);
+});
+test('camera drawer contains the official player and source link',()=>{
+ const b=boot();vm.runInContext("showCoverage('cams')",b.context);
+ assert.match(b.node('#detail').innerHTML,/youtube.com\/embed\/awQzjn72bI0/);
+ assert.ok(b.node('#drawer').open);
 });

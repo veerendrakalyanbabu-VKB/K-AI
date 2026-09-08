@@ -197,9 +197,9 @@ async def layer_data(layer: str, city: str = "Hyderabad", latitude: float | None
                 vessel[field] = voyages.get(key, {}).get(field)
         return {"status": marine_status, "diagnostics": dict(marine_diagnostics), "coverage": "Worldwide AIS subscription, up to 6,000 received vessels retained. AIS Class A and B; receiver coverage is incomplete. Reports expire after 10 minutes; incomplete receiver coverage.", "items": [{k: v for k, v in item.items() if k != "received"} for item in vessels.values()]}
     if layer == "cams":
-        return {"status": "links_only", "coverage": "Official viewing page; stream availability varies. No private cameras or synthetic camera markers.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
-    if layer in ("starlink", "active"):
-        group = "ACTIVE" if layer == "active" else "STARLINK"
+        return {"status": "player_available", "coverage": "NASA ISS camera player available; broadcast status is not monitored. Night-side darkness and outages are possible.", "items": [], "links": [{"title": "NASA live · Earth and space broadcasts", "url": "https://www.nasa.gov/live/"}]}
+    if layer in ("starlink", "active", "visual"):
+        group = {"active": "ACTIVE", "starlink": "STARLINK", "visual": "visual"}[layer]
         result = await cached(group + "-omm", "https://celestrak.org/NORAD/elements/gp.php", 7200, {"GROUP": group, "FORMAT": "JSON"})
         data = result.get("data")
         items = [{"title": row.get("OBJECT_NAME", "Starlink"), "omm": row, "source": "CelesTrak · " + group + " SGP4 estimate", "url": "https://celestrak.org/NORAD/elements/"} for row in data[:6000] if isinstance(row, dict) and row.get("NORAD_CAT_ID")] if isinstance(data, list) else []

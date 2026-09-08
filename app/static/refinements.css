@@ -22,3 +22,10 @@
 /* Transport glyphs retain screen size while course rotates. */
 .entity-marker svg{stroke-linecap:round;stroke-linejoin:round}.entity-marker:has(svg){background:#04121ac9}.entity-marker svg{transition:transform .2s ease}
 @media(prefers-reduced-motion:reduce){.entity-marker svg{transition:none}}
+
+#map-attribution{position:absolute;right:10px;bottom:45px;background:#07121fee;padding:5px 9px;font-size:12px;pointer-events:auto;z-index:5}
+#map-attribution[hidden]{display:none}
+.entity-marker{border:0;background:transparent!important;filter:drop-shadow(0 1px 2px #000) drop-shadow(0 0 1px #000);padding:4px}
+.entity-marker svg{width:18px;height:18px;stroke-width:1.6}
+.entity-marker:hover,.entity-marker:focus-visible{background:#0b2337dd!important;outline:1px solid currentColor}
+.view-options{background:#07121cb8;border:1px solid #294052;border-radius:12px;padding:6px;backdrop-filter:blur(14px)}
